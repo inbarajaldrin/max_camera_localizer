@@ -3,7 +3,7 @@ import cv2.aruco as aruco
 import numpy as np
 import scipy.spatial.transform
 from scipy.spatial.transform import Rotation as R
-from camera_pose_bridge import camera_pose, start_ros_listener
+from max_camera_localizer.camera_pose_bridge import camera_pose, start_ros_listener
 
 
 c_width = 1280 # pix
@@ -291,10 +291,10 @@ def main():
         return
 
     # Defaults to selector, but hardcoding camera id is faster.
-    cam_id = 0
-    # cam_id = select_camera(available)
-    # if cam_id is None:
-    #     return
+    # cam_id = 8
+    cam_id = select_camera(available)
+    if cam_id is None:
+        return
 
     cap = cv2.VideoCapture(cam_id)
     if not cap.isOpened():
@@ -331,7 +331,7 @@ def main():
 
         draw_overlay(frame, cam_pos, cam_quat, marker_data, frame_idx)
 
-        # cv2.imshow("ArUco Detection", frame)
+        cv2.imshow("ArUco Detection", frame)
         print(frame_idx)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break

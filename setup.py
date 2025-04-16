@@ -11,7 +11,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'cv2', 'scipy'],
     zip_safe=True,
     maintainer='max',
     maintainer_email='max@todo.todo',
