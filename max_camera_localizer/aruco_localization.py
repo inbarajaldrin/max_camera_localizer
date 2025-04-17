@@ -130,7 +130,7 @@ def detect_markers(frame, gray, aruco_dicts, parameters):
     return all_corners, all_ids
 
 def estimate_pose(frame, corners, ids, camera_matrix, dist_coeffs, marker_size,
-                  kalman_filters, marker_stabilities, last_seen_frames, current_frame, cam_pos, cam_quat):
+                  kalman_filters, marker_stabilities, last_seen_frames, current_frame, cam_pos, cam_quat, talk=True):
     max_movement = 0.05  # meters
     hold_required = 3    # frames it must persist
 
@@ -187,13 +187,14 @@ def estimate_pose(frame, corners, ids, camera_matrix, dist_coeffs, marker_size,
                     blended_tvec = blend_factor * tvec_flat + (1 - blend_factor) * pred_tvec
                     kalman.correct(blended_tvec, blended_rvec)
                     cv2.drawFrameAxes(frame, camera_matrix, dist_coeffs, blended_rvec, blended_tvec, marker_size * 0.5)
-                    print(f"[{marker_id}] Confirmed: t={tvec_flat}, r={rvec.flatten()}")
                     last_seen_frames[marker_id] = current_frame
                     # Convert to world frame
                     marker_pos_world = transform_point_cam_to_world(blended_tvec, cam_pos, cam_quat)
                     marker_quat_world = transform_orientation_cam_to_world(blended_quat, cam_quat)
-                    print(f"[{marker_id}] WORLD Pose:\n  Pos: {marker_pos_world}\n  Quat: {marker_quat_world}")
-                else:
+                    if talk:
+                        print(f"[{marker_id}] Confirmed: t={tvec_flat}, r={rvec.flatten()}")
+                        print(f"[{marker_id}] WORLD Pose:\n  Pos: {marker_pos_world}\n  Quat: {marker_quat_world}")
+                elif talk:
                     print(f"[{marker_id}] Holding: t={tvec_flat}, hold={stability['hold_counter']}")
 
 
@@ -210,12 +211,13 @@ def estimate_pose(frame, corners, ids, camera_matrix, dist_coeffs, marker_size,
             cv2.drawFrameAxes(frame, camera_matrix, dist_coeffs,
                               pred_rvec.reshape(3, 1), pred_tvec.reshape(3, 1), marker_size * 0.5)
             if not current_frame == last_seen:
-                print(f"[{marker_id}] Ghost: t={pred_tvec}, r={pred_rvec}")
                 # Convert to world frame
                 pred_quat = rvec_to_quat(pred_rvec)
                 marker_pos_world = transform_point_cam_to_world(pred_tvec, cam_pos, cam_quat)
                 marker_quat_world = transform_orientation_cam_to_world(pred_quat, cam_quat)
-                print(f"[{marker_id}] GHOST WORLD Pose:\n  Pos: {marker_pos_world}\n  Quat: {marker_quat_world}")
+                if talk:
+                    print(f"[{marker_id}] Ghost: t={pred_tvec}, r={pred_rvec}")
+                    print(f"[{marker_id}] GHOST WORLD Pose:\n  Pos: {marker_pos_world}\n  Quat: {marker_quat_world}")
         else:
             stability["confirmed"] = False
 
@@ -255,6 +257,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Run ArUco pose tracker with optional camera ID.")
     parser.add_argument("--camera-id", type=int, default=None,
                         help="Camera device ID to use (e.g., 8). If not set, will scan and prompt.")
+    parser.add_argument("--suppress-prints", action='store_true',
+                        help="Prevents console prints. Otherwise, prints object positions in both camera frame and base frame.")
     return parser.parse_args()
 
 
@@ -276,6 +280,8 @@ def main():
         cam_id = select_camera(available)
         if cam_id is None:
             return
+
+    talk = not args.suppress_prints
 
     cap = cv2.VideoCapture(cam_id)
     if not cap.isOpened():
@@ -301,7 +307,7 @@ def main():
 
         corners, ids = detect_markers(frame, gray, ARUCO_DICTS, parameters)
         estimate_pose(frame, corners, ids, CAMERA_MATRIX, DIST_COEFFS, MARKER_SIZE,
-                    kalman_filters, marker_stabilities, last_seen_frames, frame_idx, cam_pos, cam_quat)
+                    kalman_filters, marker_stabilities, last_seen_frames, frame_idx, cam_pos, cam_quat, talk)
 
 
         # After estimating pose, collect marker world positions
@@ -318,7 +324,8 @@ def main():
         draw_overlay(frame, cam_pos, cam_quat, marker_data, frame_idx)
 
         cv2.imshow("ArUco Detection", frame)
-        print(frame_idx)
+        if talk:
+            print(frame_idx)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 

@@ -28,15 +28,13 @@ class ArucoPoseBridge(Node):
 
         # --- Publishers ---
         self.cam_pose_pub = self.create_publisher(PoseStamped, '/camera_pose', 10)
-        self.marker_pub = self.create_publisher(PoseArray, '/marker_poses', 10)
+        self.marker_publishers = {}  # { marker_id: publisher }
 
     def ee_pose_callback(self, msg: PoseStamped):
         with self.lock:
             self.ee_pos = np.array([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z])
-            self.ee_quat = np.array([msg.pose.orientation.x,
-                                     msg.pose.orientation.y,
-                                     msg.pose.orientation.z,
-                                     msg.pose.orientation.w])
+            self.ee_quat = np.array([msg.pose.orientation.x, msg.pose.orientation.y,
+                                     msg.pose.orientation.z, msg.pose.orientation.w])
 
     def get_camera_pose(self):
         with self.lock:
@@ -55,12 +53,21 @@ class ArucoPoseBridge(Node):
         self.cam_pose_pub.publish(msg)
 
     def publish_marker_poses(self, marker_data):
-        msg = PoseArray()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.header.frame_id = "base"
+        now = self.get_clock().now().to_msg()
+
         for marker_id, (pos, rot) in marker_data.items():
             p = Pose()
             p.position.x, p.position.y, p.position.z = pos
             p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w = rot
-            msg.poses.append(p)
-        self.marker_pub.publish(msg)
+
+            # Publish individual PoseStamped per marker
+            if marker_id not in self.marker_publishers:
+                topic = f'/marker_poses/marker_{marker_id}'
+                self.marker_publishers[marker_id] = self.create_publisher(PoseStamped, topic, 10)
+                self.get_logger().info(f"Created publisher for marker {marker_id} -> {topic}")
+
+            pose_msg = PoseStamped()
+            pose_msg.header.stamp = now
+            pose_msg.header.frame_id = "base"
+            pose_msg.pose = p
+            self.marker_publishers[marker_id].publish(pose_msg)
