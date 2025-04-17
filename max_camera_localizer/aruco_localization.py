@@ -6,7 +6,7 @@ from max_camera_localizer.aruco_pose_bridge import ArucoPoseBridge
 from max_camera_localizer.geometric_functions import rvec_to_quat, quat_to_rvec, transform_orientation_cam_to_world, transform_point_cam_to_world, slerp_quat
 import threading
 import rclpy
-
+import argparse
 
 c_width = 1280 # pix
 c_hfov = 69.4 # deg
@@ -244,8 +244,6 @@ def draw_overlay(frame, cam_pos, cam_quat, marker_data, frame_idx):
         line = f"Marker {marker_id} rot: rx={world_rot[0]:.1f}deg, ry={world_rot[1]:.1f}deg, rz={world_rot[2]:.1f}deg"
         cv2.putText(frame, line, (10, 140 + i * 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
 
-
-
 def start_ros_node():
     rclpy.init()
     node = ArucoPoseBridge()
@@ -253,23 +251,31 @@ def start_ros_node():
     thread.start()
     return node
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run ArUco pose tracker with optional camera ID.")
+    parser.add_argument("--camera-id", type=int, default=None,
+                        help="Camera device ID to use (e.g., 8). If not set, will scan and prompt.")
+    return parser.parse_args()
+
 
 def main():
+    args = parse_args()
     bridge_node = start_ros_node()
 
     kalman_filters = {}
     marker_stabilities = {}
     last_seen_frames = {}
     frame_idx = 0
-    available = detect_available_cameras()
-    if not available:
-        return
 
-    # Defaults to selector, but hardcoding camera id is faster.
-    # cam_id = 8
-    cam_id = select_camera(available)
-    if cam_id is None:
-        return
+    if args.camera_id is not None:
+        cam_id = args.camera_id
+    else:        
+        available = detect_available_cameras()
+        if not available:
+            return
+        cam_id = select_camera(available)
+        if cam_id is None:
+            return
 
     cap = cv2.VideoCapture(cam_id)
     if not cap.isOpened():

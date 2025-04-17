@@ -64,10 +64,3 @@ class ArucoPoseBridge(Node):
             p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w = rot
             msg.poses.append(p)
         self.marker_pub.publish(msg)
-
-# def start_ros_listener():
-#     import threading
-#     rclpy.init()
-#     node = ArucoPoseBridge()
-#     thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
-#     thread.start()
