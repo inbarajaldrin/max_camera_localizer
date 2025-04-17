@@ -32,7 +32,7 @@ class ArucoPoseBridge(Node):
 
     def ee_pose_callback(self, msg: PoseStamped):
         with self.lock:
-            self.ee_pos = np.array([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z])
+            self.ee_position = np.array([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z])
             self.ee_quat = np.array([msg.pose.orientation.x, msg.pose.orientation.y,
                                      msg.pose.orientation.z, msg.pose.orientation.w])
 
