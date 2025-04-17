@@ -11,3 +11,7 @@ To run, first make sure a UR driver is running. Then, run `ros2 run max_camera_l
 If you wish to test your driver connection, run `ros2 run max_camera_localizer test_ros` instead.
 
 A preview window will appear, picking one camera accessible to the system. Press ESC to select this camera, or press any other key to move onto the next camera. Once you select your camera, a more detailed window will appear marking Aruco position and annotating details in the top left corner. 
+
+While running, this script will publish estimated camera pose (in the UR frame) in `/camera_pose` as well as poses of any detected objects in `/marker_poses`. Poses are given as `PoseStamped`.  
+
+This script assumes a fixed translation from the end effector frame origin and the focal point of the camera. If the camera is ever repositioned, please measure or calibrate, and update the translation or rotation in `aruco_pose_bridge.py`

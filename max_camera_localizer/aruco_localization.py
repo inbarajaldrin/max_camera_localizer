@@ -1,9 +1,11 @@
 import cv2
 import cv2.aruco as aruco
 import numpy as np
-import scipy.spatial.transform
 from scipy.spatial.transform import Rotation as R
-from max_camera_localizer.camera_pose_bridge import camera_pose, start_ros_listener
+from max_camera_localizer.aruco_pose_bridge import ArucoPoseBridge
+from max_camera_localizer.geometric_functions import rvec_to_quat, quat_to_rvec, transform_orientation_cam_to_world, transform_point_cam_to_world, slerp_quat
+import threading
+import rclpy
 
 
 c_width = 1280 # pix
@@ -81,37 +83,6 @@ class QuaternionKalman:
         pred_rvec = quat_to_rvec(pred_quat).flatten()
         return pred_tvec, pred_rvec
 
-def rvec_to_quat(rvec):
-    """Convert OpenCV rotation vector to quaternion [x, y, z, w]"""
-    rot, _ = cv2.Rodrigues(rvec)
-    return R.from_matrix(rot).as_quat()  # returns [x, y, z, w]
-
-def quat_to_rvec(quat):
-    """Convert quaternion [x, y, z, w] to OpenCV rotation vector"""
-    rot = R.from_quat(quat).as_matrix()
-    rvec, _ = cv2.Rodrigues(rot)
-    return rvec
-
-def transform_point_cam_to_world(point_cam, cam_pos_world, cam_quat_world):
-    r_cam_world = R.from_quat(cam_quat_world)
-    return cam_pos_world + r_cam_world.apply(point_cam)
-
-def transform_orientation_cam_to_world(marker_quat_cam, cam_quat_world):
-    r_marker_cam = R.from_quat(marker_quat_cam)
-    r_cam_world = R.from_quat(cam_quat_world)
-    r_marker_world = r_cam_world * r_marker_cam
-    return r_marker_world.as_quat()
-
-
-def slerp_quat(q1, q2, blend=0.5):
-    """Spherical linear interpolation between two quaternions"""
-    rot1 = R.from_quat(q1)
-    rot2 = R.from_quat(q2)
-    rots = R.concatenate([rot1, rot2])
-    # rots = R.random(2, random_state=2342345)
-    slerp = scipy.spatial.transform.Slerp([0, 1], rots)
-    return slerp(blend).as_quat()
-
 def detect_available_cameras(max_cams=15):
     """Try to open camera IDs and return a list of working ones."""
     available = []
@@ -159,14 +130,10 @@ def detect_markers(frame, gray, aruco_dicts, parameters):
     return all_corners, all_ids
 
 def estimate_pose(frame, corners, ids, camera_matrix, dist_coeffs, marker_size,
-                  kalman_filters, marker_stabilities, last_seen_frames, current_frame):
+                  kalman_filters, marker_stabilities, last_seen_frames, current_frame, cam_pos, cam_quat):
     max_movement = 0.05  # meters
     hold_required = 3    # frames it must persist
 
-    # Camera Location
-    cam_pos, cam_quat = camera_pose.get()
-    # print("Camera Pose:", cam_pos)
-    # print("Camera Quat:", cam_quat)
 
     if corners and ids:
         for corner, marker_id in zip(corners, ids):
@@ -279,8 +246,16 @@ def draw_overlay(frame, cam_pos, cam_quat, marker_data, frame_idx):
 
 
 
+def start_ros_node():
+    rclpy.init()
+    node = ArucoPoseBridge()
+    thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
+    thread.start()
+    return node
+
+
 def main():
-    start_ros_listener()
+    bridge_node = start_ros_node()
 
     kalman_filters = {}
     marker_stabilities = {}
@@ -314,10 +289,13 @@ def main():
         corners, ids = detect_markers(frame, gray, ARUCO_DICTS, parameters)
 
         marker_data = {}
-        cam_pos, cam_quat = camera_pose.get()
+        cam_pos, cam_quat = bridge_node.get_camera_pose()
+        # print("Camera Pose:", cam_pos)
+        # print("Camera Quat:", cam_quat)
+
         corners, ids = detect_markers(frame, gray, ARUCO_DICTS, parameters)
         estimate_pose(frame, corners, ids, CAMERA_MATRIX, DIST_COEFFS, MARKER_SIZE,
-                    kalman_filters, marker_stabilities, last_seen_frames, frame_idx)
+                    kalman_filters, marker_stabilities, last_seen_frames, frame_idx, cam_pos, cam_quat)
 
 
         # After estimating pose, collect marker world positions
@@ -329,6 +307,8 @@ def main():
                 world_rot = transform_orientation_cam_to_world(rquat, cam_quat)
                 marker_data[marker_id] = (world_pos, world_rot)
 
+        bridge_node.publish_camera_pose(cam_pos, cam_quat)
+        bridge_node.publish_marker_poses(marker_data)
         draw_overlay(frame, cam_pos, cam_quat, marker_data, frame_idx)
 
         cv2.imshow("ArUco Detection", frame)
