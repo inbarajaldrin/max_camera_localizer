@@ -14,9 +14,9 @@ class ArucoPoseBridge(Node):
         self.cam_offset_position = np.array([-0.012, -0.03, -0.01])  # meters
         self.cam_offset_quat = np.array([0.0, 0.0, 0.0, 1.0])  # identity quaternion
 
-        # --- Latest EE Pose (using values here if no ROS input) ---
-        self.ee_position = np.zeros(3)
-        self.ee_quat = np.array([0.0, 0.0, 0.0, 1.0])
+        # --- Latest EE Pose (using values here if no ROS input - Home position) ---
+        self.ee_position = np.array([-0.144, -0.435, 0.202])
+        self.ee_quat = np.array([0.0, 1.0, 0.0, 0.0])
         self.lock = threading.Lock()
 
         self.subscription = self.create_subscription(
