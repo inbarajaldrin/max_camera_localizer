@@ -29,6 +29,7 @@ class ArucoPoseBridge(Node):
         # --- Publishers ---
         self.cam_pose_pub = self.create_publisher(PoseStamped, '/camera_pose', 10)
         self.marker_publishers = {}  # { marker_id: publisher }
+        self.object_publishers = {}
 
     def ee_pose_callback(self, msg: PoseStamped):
         with self.lock:
@@ -74,3 +75,25 @@ class ArucoPoseBridge(Node):
             pose_msg.header.frame_id = "base"
             pose_msg.pose = p
             self.marker_publishers[marker_id].publish(pose_msg)
+
+    def publish_object_poses(self, object_data):
+        now = self.get_clock().now().to_msg()
+
+        for obj in object_data:
+            name = obj["name"]
+            pos = obj["position"]
+            quat = obj["quaternion"]
+            p = Pose()
+            p.position.x, p.position.y, p.position.z = pos
+            p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w = quat
+
+            if name not in self.object_publishers:
+                topic = f'/object_poses/object_{name}'
+                self.object_publishers[name] = self.create_publisher(PoseStamped, topic, 10)
+                self.get_logger().info(f"Created publisher for object {name} -> {topic}")
+
+            pose_msg = PoseStamped()
+            pose_msg.header.stamp = now
+            pose_msg.header.frame_id = "base"
+            pose_msg.pose = p
+            self.object_publishers[name].publish(pose_msg)

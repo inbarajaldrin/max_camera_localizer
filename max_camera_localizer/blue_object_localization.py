@@ -1,5 +1,4 @@
 import cv2
-# import cv2.aruco as aruco
 import numpy as np
 from itertools import combinations
 from scipy.spatial.transform import Rotation as R
@@ -25,12 +24,7 @@ CAMERA_MATRIX = np.array([[fx, 0, c_width / 2],
                           [0, fy, c_height / 2],
                           [0, 0, 1]], dtype=np.float32)
 DIST_COEFFS = np.zeros((5, 1), dtype=np.float32) # datasheet says <= 1.5%
-# MARKER_SIZE = 0.019  # meters
-# HALF_SIZE = MARKER_SIZE / 2
-# ARUCO_DICTS = {
-#     "DICT_4X4_250": aruco.DICT_4X4_250,
-#     "DICT_5X5_250": aruco.DICT_5X5_250
-# }
+
 trackers = {}
 
 class QuaternionKalman:
@@ -407,7 +401,6 @@ def main():
     if not cap.isOpened():
         return
 
-    # parameters = aruco.DetectorParameters()
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, c_width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, c_height)
     cap.set(cv2.CAP_PROP_AUTO_WB, 0)
@@ -418,14 +411,9 @@ def main():
             break
 
         frame_idx += 1
-        # gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-
         marker_data = {}
         ee_pos, ee_quat = bridge_node.get_ee_pose()
         cam_pos, cam_quat = bridge_node.get_camera_pose()
-        # print("Camera Pose:", cam_pos)
-        # print("Camera Quat:", cam_quat)
 
         # estimate_pose(frame, corners, ids, CAMERA_MATRIX, DIST_COEFFS, MARKER_SIZE,
         #             kalman_filters, marker_stabilities, last_seen_frames, frame_idx, cam_pos, cam_quat, talk)
@@ -441,8 +429,8 @@ def main():
         #         world_rot = transform_orientation_cam_to_world(rquat, cam_quat)
         #         marker_data[marker_id] = (world_pos, world_rot)
 
-        # bridge_node.publish_camera_pose(cam_pos, cam_quat)
-        # bridge_node.publish_marker_poses(marker_data)
+        bridge_node.publish_camera_pose(cam_pos, cam_quat)
+        bridge_node.publish_object_poses(identified_objects)
         draw_overlay(frame, cam_pos, cam_quat, identified_objects, frame_idx, ee_pos, ee_quat)
         
         draw_identified_triangles(frame, CAMERA_MATRIX, cam_pos, cam_quat, identified_objects)
