@@ -11,7 +11,7 @@ class ArucoPoseBridge(Node):
         super().__init__('aruco_pose_bridge')
         
         # Offset of camera from EE (in EE frame)
-        self.cam_offset_position = np.array([-0.012, -0.03, -0.01])  # meters
+        self.cam_offset_position = np.array([-0.012, -0.048, -0.01])  # meters
         self.cam_offset_quat = np.array([0.0, 0.0, 0.0, 1.0])  # identity quaternion
 
         # --- Latest EE Pose (using values here if no ROS input - Home position) ---
@@ -35,6 +35,9 @@ class ArucoPoseBridge(Node):
             self.ee_position = np.array([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z])
             self.ee_quat = np.array([msg.pose.orientation.x, msg.pose.orientation.y,
                                      msg.pose.orientation.z, msg.pose.orientation.w])
+
+    def get_ee_pose(self):
+        return self.ee_position, self.ee_quat
 
     def get_camera_pose(self):
         with self.lock:

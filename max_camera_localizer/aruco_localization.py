@@ -222,29 +222,40 @@ def estimate_pose(frame, corners, ids, camera_matrix, dist_coeffs, marker_size,
             stability["confirmed"] = False
 
 
-def draw_overlay(frame, cam_pos, cam_quat, marker_data, frame_idx):
-    # Convert quaternion to Euler for readability
-    cam_rot = R.from_quat(cam_quat)
-    cam_rot = np.rad2deg(cam_rot.as_rotvec())
-    # cam_euler = np.rad2deg(cam_rot.as_euler('xyz'))
-
-    text_lines = [
+def draw_overlay(frame, cam_pos, cam_quat, marker_data, frame_idx, ee_pos, ee_quat):
+    # End Effector
+    ee_rot = R.from_quat(ee_quat).as_rotvec(degrees=True)
+    ee_euler = R.from_quat(ee_quat).as_euler('xyz',degrees=True)
+    text_lines_ee = [
         f"Frame: {frame_idx}",
-        f"Camera Position: x={1000*cam_pos[0]:.3f}mm, y={1000*cam_pos[1]:.3f}mm, z={1000*cam_pos[2]:.3f}mm",
-        f"Camera Euler: rx={cam_rot[0]:.1f}deg, ry={cam_rot[1]:.1f}deg, rz={cam_rot[2]:.1f}deg"
+        f"EE Pos: x={1000*ee_pos[0]:.2f}mm, y={1000*ee_pos[1]:.2f}mm, z={1000*ee_pos[2]:.2f}mm",
+        f"EE Rot: rx={ee_rot[0]: 5.1f}deg, ry={ee_rot[1]: 5.1f}deg, rz={ee_rot[2]: 5.1f}deg",
+        f"EE Euler (xyz): r={ee_euler[0]: 5.1f}deg, p={ee_euler[1]: 5.1f}deg, y={ee_euler[2]: 5.1f}deg"
     ]
+    for i, line in enumerate(text_lines_ee): # y = 30, 50, 70, 90
+        cv2.putText(frame, line, (10, 30 + i * 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
 
-    for i, line in enumerate(text_lines):
-        cv2.putText(frame, line, (10, 30 + i * 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+    # Camera
+    # cam_rot = R.from_quat(cam_quat).as_rotvec(degrees=True)
+    cam_euler = R.from_quat(cam_quat).as_euler('xyz',degrees=True)
+    text_lines = [
+        f"Camera Pos: x={1000*cam_pos[0]:.2f}mm, y={1000*cam_pos[1]:.2f}mm, z={1000*cam_pos[2]:.2f}mm",
+        # f"Camera Rot: rx={cam_rot[0]: 5.1f}deg, ry={cam_rot[1]: 5.1f}deg, rz={cam_rot[2]: 5.1f}deg"
+        f"Camera Euler: r={cam_euler[0]: 5.1f}deg, p={cam_euler[1]: 5.1f}deg, y={cam_euler[2]: 5.1f}deg"
+    ]
+    for i, line in enumerate(text_lines): # y = 120, 140
+        cv2.putText(frame, line, (10, 120 + i * 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 1)
 
+    # Markers
     for i, (marker_id, (world_pos, world_quat)) in enumerate(marker_data.items()):
-        line = f"Marker {marker_id} pos: x={1000*world_pos[0]:.3f}mm, y={1000*world_pos[1]:.3f}mm, z={1000*world_pos[2]:.3f}mm"
-        cv2.putText(frame, line, (10, 120 + i * 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
-        world_rot = R.from_quat(world_quat)
-        world_rot = np.rad2deg(world_rot.as_rotvec())
-        # world_euler = np.rad2deg(world_rot.as_euler('xyz'))
-        line = f"Marker {marker_id} rot: rx={world_rot[0]:.1f}deg, ry={world_rot[1]:.1f}deg, rz={world_rot[2]:.1f}deg"
-        cv2.putText(frame, line, (10, 140 + i * 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
+        line = f"Marker {marker_id} Pos: x={1000*world_pos[0]:.2f}mm, y={1000*world_pos[1]:.2f}mm, z={1000*world_pos[2]:.2f}mm"
+        cv2.putText(frame, line, (10, 170 + i * 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
+
+        # world_rot = R.from_quat(world_quat).as_rotvec(degrees=True)
+        # line = f"Marker {marker_id} rot: rx={world_rot[0]:.1f}deg, ry={world_rot[1]:.1f}deg, rz={world_rot[2]:.1f}deg"
+        world_euler = R.from_quat(world_quat).as_euler('xyz', degrees=True)
+        line = f"Marker {marker_id} Euler: r={world_euler[0]: 5.1f}deg, p={world_euler[1]: 5.1f}deg, y={world_euler[2]: 5.1f}deg"
+        cv2.putText(frame, line, (10, 190 + i * 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
 
 def start_ros_node():
     rclpy.init()
@@ -301,6 +312,7 @@ def main():
         corners, ids = detect_markers(frame, gray, ARUCO_DICTS, parameters)
 
         marker_data = {}
+        ee_pos, ee_quat = bridge_node.get_ee_pose()
         cam_pos, cam_quat = bridge_node.get_camera_pose()
         # print("Camera Pose:", cam_pos)
         # print("Camera Quat:", cam_quat)
@@ -321,7 +333,7 @@ def main():
 
         bridge_node.publish_camera_pose(cam_pos, cam_quat)
         bridge_node.publish_marker_poses(marker_data)
-        draw_overlay(frame, cam_pos, cam_quat, marker_data, frame_idx)
+        draw_overlay(frame, cam_pos, cam_quat, marker_data, frame_idx, ee_pos, ee_quat)
 
         cv2.imshow("ArUco Detection", frame)
         if talk:
