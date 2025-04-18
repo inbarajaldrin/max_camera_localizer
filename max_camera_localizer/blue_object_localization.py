@@ -1,10 +1,11 @@
 import cv2
-import cv2.aruco as aruco
+# import cv2.aruco as aruco
 import numpy as np
+from itertools import combinations
 from scipy.spatial.transform import Rotation as R
 from max_camera_localizer.camera_selection import detect_available_cameras, select_camera
 from max_camera_localizer.aruco_pose_bridge import ArucoPoseBridge
-from max_camera_localizer.geometric_functions import rvec_to_quat, quat_to_rvec, transform_orientation_cam_to_world, transform_point_cam_to_world, slerp_quat
+from max_camera_localizer.geometric_functions import rvec_to_quat, quat_to_rvec, transform_orientation_cam_to_world, transform_point_cam_to_world, slerp_quat, transform_point_world_to_cam
 import threading
 import rclpy
 import argparse
@@ -23,12 +24,12 @@ CAMERA_MATRIX = np.array([[fx, 0, c_width / 2],
                           [0, fy, c_height / 2],
                           [0, 0, 1]], dtype=np.float32)
 DIST_COEFFS = np.zeros((5, 1), dtype=np.float32) # datasheet says <= 1.5%
-MARKER_SIZE = 0.019  # meters
-HALF_SIZE = MARKER_SIZE / 2
-ARUCO_DICTS = {
-    "DICT_4X4_250": aruco.DICT_4X4_250,
-    "DICT_5X5_250": aruco.DICT_5X5_250
-}
+# MARKER_SIZE = 0.019  # meters
+# HALF_SIZE = MARKER_SIZE / 2
+# ARUCO_DICTS = {
+#     "DICT_4X4_250": aruco.DICT_4X4_250,
+#     "DICT_5X5_250": aruco.DICT_5X5_250
+# }
 trackers = {}
 
 class QuaternionKalman:
@@ -84,17 +85,77 @@ class QuaternionKalman:
         pred_rvec = quat_to_rvec(pred_quat).flatten()
         return pred_tvec, pred_rvec
 
-def detect_markers(frame, gray, aruco_dicts, parameters):
-    all_corners, all_ids = [], []
-    for dict_id in aruco_dicts.values():
-        aruco_dict = aruco.getPredefinedDictionary(dict_id)
-        detector = aruco.ArucoDetector(aruco_dict, parameters)
-        corners, ids, _ = detector.detectMarkers(gray)
-        if ids is not None:
-            all_corners.extend(corners)
-            all_ids.extend(ids.flatten())
-            aruco.drawDetectedMarkers(frame, corners, ids)
-    return all_corners, all_ids
+def detect_blue_object_positions(frame, camera_matrix, cam_pos, cam_quat, table_height=0.01, min_area=120):
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    
+    # Define blue range in HSV
+    lower_blue = np.array([100, 100, 50])
+    upper_blue = np.array([140, 255, 255])
+    
+    mask = cv2.inRange(hsv, lower_blue, upper_blue)
+    kernel = np.ones((5, 5), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    world_points = []
+    image_points = []
+
+    if contours:
+        for cnt in contours:
+            M = cv2.moments(cnt)
+            area = cv2.contourArea(cnt)            
+            if area < min_area:
+                continue  # skip tiny blobs
+            if M["m00"] > 0:
+                cx = int(M["m10"] / M["m00"])
+                cy = int(M["m01"] / M["m00"])
+                image_points.append((cx, cy))
+                cv2.circle(frame, (cx, cy), 5, (255, 0, 0), -1)
+
+                # Step 1: Ray in camera frame
+                pixel = np.array([cx, cy, 1.0])
+                ray_cam = np.linalg.inv(camera_matrix) @ pixel
+
+                # Step 2: Transform ray to world frame
+                R_wc = R.from_quat(cam_quat).as_matrix()
+                ray_world = R_wc @ ray_cam
+                cam_origin_world = np.array(cam_pos)
+
+                # Step 3: Ray-plane intersection with z = table_height
+                t = (table_height - cam_origin_world[2]) / ray_world[2]
+                point_world = cam_origin_world + t * ray_world
+                world_points.append(point_world)
+
+    return world_points, image_points
+
+def identify_objects_from_blobs(world_points, tolerance=5.0):
+    known_triangles = {
+        "allen_key": [40, 145, 170],
+        "symmetric_tool": [37, 70, 70]
+    }
+
+    identified_objects = []
+
+    for tri_pts in combinations(world_points, 3):
+        p1, p2, p3 = np.array(tri_pts[0]), np.array(tri_pts[1]), np.array(tri_pts[2])
+        sides = sorted([
+            1000*np.linalg.norm(p1 - p2),
+            1000*np.linalg.norm(p2 - p3),
+            1000*np.linalg.norm(p3 - p1)
+        ])
+
+        for name, template in known_triangles.items():
+            expected = sorted(template)
+            diffs = [abs(a - b) for a, b in zip(sides, expected)]
+            if all(d < tolerance for d in diffs):
+                identified_objects.append({
+                    "name": name,
+                    "points": (p1, p2, p3),
+                    "sides": sides
+                })
+                break  # One match per triangle
+
+    return identified_objects
 
 def estimate_pose(frame, corners, ids, camera_matrix, dist_coeffs, marker_size,
                   kalman_filters, marker_stabilities, last_seen_frames, current_frame, cam_pos, cam_quat, talk=True):
@@ -214,15 +275,47 @@ def draw_overlay(frame, cam_pos, cam_quat, marker_data, frame_idx, ee_pos, ee_qu
         cv2.putText(frame, line, (10, 120 + i * 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 1)
 
     # Markers
-    for i, (marker_id, (world_pos, world_quat)) in enumerate(marker_data.items()):
+    for i, (marker_id, world_pos) in enumerate(marker_data.items()):
         line = f"Marker {marker_id} Pos: x={1000*world_pos[0]:.2f}mm, y={1000*world_pos[1]:.2f}mm, z={1000*world_pos[2]:.2f}mm"
-        cv2.putText(frame, line, (10, 170 + i * 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
+        cv2.putText(frame, line, (10, 170 + i * 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
 
         # world_rot = R.from_quat(world_quat).as_rotvec(degrees=True)
         # line = f"Marker {marker_id} rot: rx={world_rot[0]:.1f}deg, ry={world_rot[1]:.1f}deg, rz={world_rot[2]:.1f}deg"
-        world_euler = R.from_quat(world_quat).as_euler('xyz', degrees=True)
-        line = f"Marker {marker_id} Euler: r={world_euler[0]: 5.1f}deg, p={world_euler[1]: 5.1f}deg, y={world_euler[2]: 5.1f}deg"
-        cv2.putText(frame, line, (10, 190 + i * 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
+        # world_euler = R.from_quat(world_quat).as_euler('xyz', degrees=True)
+        # line = f"Marker {marker_id} Euler: r={world_euler[0]: 5.1f}deg, p={world_euler[1]: 5.1f}deg, y={world_euler[2]: 5.1f}deg"
+        # cv2.putText(frame, line, (10, 190 + i * 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
+
+def draw_identified_triangles(frame, camera_matrix, cam_pos, cam_quat, identified_objects):
+    color_map = {
+        "allen_key": (0, 255, 0),         # Green
+        "symmetric_tool": (0, 0, 255),    # Red
+    }
+
+    for obj in identified_objects:
+        name = obj["name"]
+        world_pts = obj["points"]
+        color = color_map.get(name, (255, 255, 255))  # default to white
+
+        # Project world points back to image space
+        image_pts = []
+        for pt in world_pts:
+            cam_pt = transform_point_world_to_cam(pt, cam_pos, cam_quat)
+            x, y, z = cam_pt
+            u = int(camera_matrix[0, 0] * x / z + camera_matrix[0, 2])
+            v = int(camera_matrix[1, 1] * y / z + camera_matrix[1, 2])
+            image_pts.append((u, v))
+
+        # Draw triangle
+        for i in range(3):
+            pt1 = image_pts[i]
+            pt2 = image_pts[(i + 1) % 3]
+            cv2.line(frame, pt1, pt2, color, 2)
+
+        # Draw label at centroid
+        centroid = tuple(np.mean(image_pts, axis=0).astype(int))
+        cv2.putText(frame, name, centroid, cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+    return frame
 
 def start_ros_node():
     rclpy.init()
@@ -265,7 +358,7 @@ def main():
     if not cap.isOpened():
         return
 
-    parameters = aruco.DetectorParameters()
+    # parameters = aruco.DetectorParameters()
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, c_width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, c_height)
     print("Press 'q' to quit.")
@@ -275,7 +368,8 @@ def main():
             break
 
         frame_idx += 1
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
 
         marker_data = {}
         ee_pos, ee_quat = bridge_node.get_ee_pose()
@@ -283,25 +377,29 @@ def main():
         # print("Camera Pose:", cam_pos)
         # print("Camera Quat:", cam_quat)
 
-        corners, ids = detect_markers(frame, gray, ARUCO_DICTS, parameters)
-        estimate_pose(frame, corners, ids, CAMERA_MATRIX, DIST_COEFFS, MARKER_SIZE,
-                    kalman_filters, marker_stabilities, last_seen_frames, frame_idx, cam_pos, cam_quat, talk)
+        # estimate_pose(frame, corners, ids, CAMERA_MATRIX, DIST_COEFFS, MARKER_SIZE,
+        #             kalman_filters, marker_stabilities, last_seen_frames, frame_idx, cam_pos, cam_quat, talk)
 
-
+        world_points, image_points = detect_blue_object_positions(frame, CAMERA_MATRIX, cam_pos, cam_quat)
+        for i, world_point in enumerate(world_points):
+            marker_data[i] = world_point
+        identified_objects = identify_objects_from_blobs(world_points)
         # After estimating pose, collect marker world positions
-        for marker_id in kalman_filters:
-            if marker_stabilities[marker_id]["confirmed"]:
-                tvec, rvec = kalman_filters[marker_id].predict()
-                rquat = rvec_to_quat(rvec)
-                world_pos = transform_point_cam_to_world(tvec, cam_pos, cam_quat)
-                world_rot = transform_orientation_cam_to_world(rquat, cam_quat)
-                marker_data[marker_id] = (world_pos, world_rot)
+        # for marker_id in kalman_filters:
+        #     if marker_stabilities[marker_id]["confirmed"]:
+        #         tvec, rvec = kalman_filters[marker_id].predict()
+        #         rquat = rvec_to_quat(rvec)
+        #         world_pos = transform_point_cam_to_world(tvec, cam_pos, cam_quat)
+        #         world_rot = transform_orientation_cam_to_world(rquat, cam_quat)
+        #         marker_data[marker_id] = (world_pos, world_rot)
 
-        bridge_node.publish_camera_pose(cam_pos, cam_quat)
-        bridge_node.publish_marker_poses(marker_data)
+        # bridge_node.publish_camera_pose(cam_pos, cam_quat)
+        # bridge_node.publish_marker_poses(marker_data)
         draw_overlay(frame, cam_pos, cam_quat, marker_data, frame_idx, ee_pos, ee_quat)
+        
+        draw_identified_triangles(frame, CAMERA_MATRIX, cam_pos, cam_quat, identified_objects)
 
-        cv2.imshow("ArUco Detection", frame)
+        cv2.imshow("Blue Object Detection", frame)
         if talk:
             print(frame_idx)
         if cv2.waitKey(1) & 0xFF == ord('q'):

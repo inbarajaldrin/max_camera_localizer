@@ -19,6 +19,10 @@ def transform_point_cam_to_world(point_cam, cam_pos_world, cam_quat_world):
     r_cam_world = R.from_quat(cam_quat_world)
     return cam_pos_world + r_cam_world.apply(point_cam)
 
+def transform_point_world_to_cam(point_world, cam_pos_world, cam_quat_world):
+    r_world_cam = R.from_quat(cam_quat_world).inv()
+    return r_world_cam.apply(point_world - cam_pos_world)
+
 def transform_orientation_cam_to_world(marker_quat_cam, cam_quat_world):
     r_marker_cam = R.from_quat(marker_quat_cam)
     r_cam_world = R.from_quat(cam_quat_world)
