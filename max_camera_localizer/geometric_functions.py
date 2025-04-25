@@ -2,7 +2,7 @@
 import cv2
 import scipy.spatial.transform
 from scipy.spatial.transform import Rotation as R
-
+import numpy as np
 
 def rvec_to_quat(rvec):
     """Convert OpenCV rotation vector to quaternion [x, y, z, w]"""
@@ -14,6 +14,17 @@ def quat_to_rvec(quat):
     rot = R.from_quat(quat).as_matrix()
     rvec, _ = cv2.Rodrigues(rot)
     return rvec
+
+def transform_points_world_to_img(points_world, cam_pos_world, cam_quat_world, camera_matrix):
+    image_points = []
+    for pt in points_world:
+        cam_pt = transform_point_world_to_cam(pt, cam_pos_world, cam_quat_world)
+        if cam_pt[2] <= 0.01:
+            continue  # skip points behind the camera or too close
+        u = int(camera_matrix[0, 0] * cam_pt[0] / cam_pt[2] + camera_matrix[0, 2])
+        v = int(camera_matrix[1, 1] * cam_pt[1] / cam_pt[2] + camera_matrix[1, 2])
+        image_points.append((u,v))
+    return image_points
 
 def transform_point_cam_to_world(point_cam, cam_pos_world, cam_quat_world):
     r_cam_world = R.from_quat(cam_quat_world)

@@ -49,10 +49,11 @@ def define_body_frame_pliers(p1, p2, p3):
     y_axis = mid_ab - origin
     y_axis /= np.linalg.norm(y_axis)
 
-    x_axis = A - B
-    x_axis /= np.linalg.norm(x_axis)
+    # Z Always up
+    z_axis = np.array([0, 0, 1])
 
-    z_axis = np.cross(x_axis, y_axis)
+    x_axis = np.cross(y_axis, z_axis)
+    x_axis /= np.linalg.norm(x_axis)
 
     rot_matrix = np.column_stack((x_axis, y_axis, z_axis))
     quat = R.from_matrix(rot_matrix).as_quat()
