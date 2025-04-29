@@ -1,7 +1,9 @@
 from scipy.spatial.transform import Rotation as R
 import numpy as np
 
-def define_body_frame_allen_key(p1, p2, p3):
+def define_body_frame_allen_key(p1, p2, p3, width=0.005):
+    "Returns Origin, Quat, {Contact Points}"
+    "Contact points as (idx, pos, normvec)"
     # Identify the side lengths
     dists = [
         (np.linalg.norm(p1 - p2), p1, p2),
@@ -28,10 +30,21 @@ def define_body_frame_allen_key(p1, p2, p3):
 
     rot_matrix = np.column_stack((x_axis, y_axis, z_axis))
     quat = R.from_matrix(rot_matrix).as_quat()
-    return origin, quat
+
+    # Contact #s 1 and 2 are +-Y side of point A
+    # Contact #s 3 and 4 are +-Y side of point B
+    # Contact #s 5 and 6 are +-X side of point C
+    normvecs = np.array([[0, -1, 0], [0,  1, 0],
+                         [0, -1, 0], [0,  1, 0],
+                         [-1, 0, 0], [ 1, 0, 0]])
+    normvecs = [rot_matrix @ normvec for normvec in normvecs]
+    positions = [A, A, B, B, C, C]
+    positions = [position - width * normvec for position, normvec in zip(positions, normvecs)]
+    contact_points = [(i, position, normvec) for i, (position, normvec) in enumerate(zip(positions, normvecs))]
+    return origin, quat, contact_points
 
 
-def define_body_frame_pliers(p1, p2, p3):
+def define_body_frame_pliers(p1, p2, p3, widths=[0.005, 0.005, 0.012, 0.012]):
     # Identify the 3.7cm side
     dists = [
         (np.linalg.norm(p1 - p2), p1, p2),
@@ -57,4 +70,19 @@ def define_body_frame_pliers(p1, p2, p3):
 
     rot_matrix = np.column_stack((x_axis, y_axis, z_axis))
     quat = R.from_matrix(rot_matrix).as_quat()
-    return origin, quat
+
+    # Reshuffle A and B so that A has the lower x value
+    xfactor_a = np.dot(A, x_axis)
+    xfactor_b = np.dot(B, x_axis)
+    if xfactor_b < xfactor_a:
+        A, B = B, A  # Swap so that A has the lower x value
+
+    # Contact #s 1 and 2 are -+X side of point A, B
+    # Contact #s 3 and 4 are +-X side of point C
+    normvecs = np.array([[ 1, 0, 0], [-1, 0, 0],
+                         [-1, 0, 0], [ 1, 0, 0]])
+    normvecs = [rot_matrix @ normvec for normvec in normvecs]
+    positions = [A, B, C, C]
+    positions = [position - width * normvec for position, normvec, width in zip(positions, normvecs, widths)]
+    contact_points = [(i, position, normvec) for i, (position, normvec) in enumerate(zip(positions, normvecs))]
+    return origin, quat, contact_points

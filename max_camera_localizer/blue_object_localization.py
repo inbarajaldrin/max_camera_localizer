@@ -49,16 +49,17 @@ def identify_objects_from_blobs(world_points, tolerance=5.0):
             diffs = [abs(a - b) for a, b in zip(sides, expected)]
             if all(d < tolerance for d in diffs):
                 if name == "allen_key":
-                    pos, quat = define_body_frame_allen_key(p1, p2, p3)
+                    pos, quat, contacts = define_body_frame_allen_key(p1, p2, p3)
                 elif name == "pliers":
-                    pos, quat = define_body_frame_pliers(p1, p2, p3)
+                    pos, quat, contacts = define_body_frame_pliers(p1, p2, p3)
 
                 identified_objects.append({
                     "name": name,
                     "points": (p1, p2, p3),
-                    "sides_mm": sides,
                     "position": pos,
-                    "quaternion": quat
+                    "quaternion": quat,
+                    'inferred': False,
+                    "contacts": contacts
                 })
                 break  # One match per triangle
 
@@ -140,9 +141,9 @@ def draw_identified_triangles(frame, camera_matrix, cam_pos, cam_quat, identifie
         rot = R.from_quat(obj["quaternion"])
         axes_world = [
             origin,                          # origin
-            origin + rot.apply([0.02, 0, 0]),  # X axis
-            origin + rot.apply([0, 0.02, 0]),  # Y axis
-            origin + rot.apply([0, 0, 0.02])   # Z axis
+            origin + rot.apply([0.01, 0, 0]),  # X axis
+            origin + rot.apply([0, 0.01, 0]),  # Y axis
+            origin + rot.apply([0, 0, 0.01])   # Z axis
         ]
 
         axes_image = transform_points_world_to_img(axes_world, cam_pos, cam_quat, camera_matrix)
@@ -154,6 +155,16 @@ def draw_identified_triangles(frame, camera_matrix, cam_pos, cam_quat, identifie
             cv2.arrowedLine(frame, o, y, (0, 255, 0), 2, tipLength=0.3)  # Y: Green
         if o and z:
             cv2.arrowedLine(frame, o, z, (255, 0, 0), 2, tipLength=0.3)  # Z: Blue
+
+        # Draw contact points
+        contact_points = obj["contacts"]
+        contact_poses = [contact[1] for contact in contact_points]
+        contact_norms = [contact[2] for contact in contact_points]
+        contact_axes_start = [contact_pos - 0.02*contact_norm for (contact_pos, contact_norm) in zip(contact_poses, contact_norms)]
+        contact_poses_img = transform_points_world_to_img(contact_poses, cam_pos, cam_quat, camera_matrix)
+        contact_axes_img = transform_points_world_to_img(contact_axes_start, cam_pos, cam_quat, camera_matrix)
+        for pos, ax in zip(contact_poses_img, contact_axes_img):
+            cv2.arrowedLine(frame, ax, pos, (255, 255, 255), 2, tipLength=0.3)
 
     return frame
 
@@ -270,17 +281,16 @@ def attempt_recovery_for_missing_objects(last_objects, current_points, known_tri
             # for inferred_p3 in candidates:
             try:
                 if name == "allen_key":
-                    pos, quat = define_body_frame_allen_key(cur_pts[0], cur_pts[1], inferred_p3)
+                    pos, quat, contacts = define_body_frame_allen_key(cur_pts[0], cur_pts[1], inferred_p3)
                 elif name == "pliers":
-                    pos, quat = define_body_frame_pliers(cur_pts[0], cur_pts[1], inferred_p3)
-                else:
-                    continue
+                    pos, quat, contacts = define_body_frame_pliers(cur_pts[0], cur_pts[1], inferred_p3)
                 recovered.append({
                     "name": name,
                     "points": (cur_pts[0], cur_pts[1], inferred_p3),
                     "position": pos,
                     "quaternion": quat,
-                    "inferred": True
+                    "inferred": True,
+                    "contacts": contacts
                 })
             except:
                 continue

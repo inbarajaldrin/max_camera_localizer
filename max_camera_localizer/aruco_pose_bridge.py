@@ -1,7 +1,7 @@
 # aruco_pose_bridge.py
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import PoseStamped, PoseArray, Pose
+from geometry_msgs.msg import PoseStamped, PoseArray, Pose, Vector3Stamped, PointStamped
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import threading
@@ -30,6 +30,8 @@ class ArucoPoseBridge(Node):
         self.cam_pose_pub = self.create_publisher(PoseStamped, '/camera_pose', 10)
         self.marker_publishers = {}  # { marker_id: publisher }
         self.object_publishers = {}
+        self.contact_position_publishers = {}  # { object_name: { idx: publisher } }
+        self.contact_normal_publishers = {}    # { object_name: { idx: publisher } }
 
     def ee_pose_callback(self, msg: PoseStamped):
         with self.lock:
@@ -83,6 +85,7 @@ class ArucoPoseBridge(Node):
             name = obj["name"]
             pos = obj["position"]
             quat = obj["quaternion"]
+            contacts = obj["contacts"]
             p = Pose()
             p.position.x, p.position.y, p.position.z = pos
             p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w = quat
@@ -97,3 +100,31 @@ class ArucoPoseBridge(Node):
             pose_msg.header.frame_id = "base"
             pose_msg.pose = p
             self.object_publishers[name].publish(pose_msg)
+            
+            for idx, position, normal in contacts:
+                # Initialize nested dicts if needed
+                if name not in self.contact_position_publishers:
+                    self.contact_position_publishers[name] = {}
+                    self.contact_normal_publishers[name] = {}
+
+                # Create publishers if not already created
+                if idx not in self.contact_position_publishers[name]:
+                    pos_topic = f'/object_poses/{name}/contacts/c_{idx}/position'
+                    norm_topic = f'/object_poses/{name}/contacts/c_{idx}/normal'
+                    self.contact_position_publishers[name][idx] = self.create_publisher(PointStamped, pos_topic, 10)
+                    self.contact_normal_publishers[name][idx] = self.create_publisher(Vector3Stamped, norm_topic, 10)
+                    self.get_logger().info(f"Created contact publishers for object {name}, contact {idx}")
+
+                # Publish position
+                pos_msg = PointStamped()
+                pos_msg.header.stamp = now
+                pos_msg.header.frame_id = "base"
+                pos_msg.point.x, pos_msg.point.y, pos_msg.point.z = position
+                self.contact_position_publishers[name][idx].publish(pos_msg)
+
+                # Publish normal
+                norm_msg = Vector3Stamped()
+                norm_msg.header.stamp = now
+                norm_msg.header.frame_id = "base"
+                norm_msg.vector.x, norm_msg.vector.y, norm_msg.vector.z = normal
+                self.contact_normal_publishers[name][idx].publish(norm_msg)
