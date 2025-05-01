@@ -5,6 +5,7 @@ from scipy.spatial.transform import Rotation as R
 from max_camera_localizer.camera_selection import detect_available_cameras, select_camera
 from max_camera_localizer.aruco_pose_bridge import ArucoPoseBridge
 from max_camera_localizer.geometric_functions import rvec_to_quat, quat_to_rvec, transform_orientation_cam_to_world, transform_point_cam_to_world, slerp_quat
+from max_camera_localizer.kalman_functions import QuaternionKalman
 import threading
 import rclpy
 import argparse
@@ -30,59 +31,6 @@ ARUCO_DICTS = {
     "DICT_5X5_250": aruco.DICT_5X5_250
 }
 trackers = {}
-
-class QuaternionKalman:
-    def __init__(self):
-        # 10 states: [x, y, z, qx, qy, qz, qw, vx, vy, vz]
-        self.kf = cv2.KalmanFilter(10, 7)
-
-        dt = 1
-
-        # A: Transition matrix (10x10)
-        self.kf.transitionMatrix = np.eye(10, dtype=np.float32)
-        for i in range(3):  # x += vx*dt
-            self.kf.transitionMatrix[i, i+7] = dt
-
-        # H: Measurement matrix (7x10)
-        self.kf.measurementMatrix = np.zeros((7, 10), dtype=np.float32)
-        self.kf.measurementMatrix[0:7, 0:7] = np.eye(7)
-
-        # Process noise covariance (Q). Lower Values = More Inertia
-        self.kf.processNoiseCov = np.eye(10, dtype=np.float32) * 1e-6
-        for i in range(3):   # x, y, z
-            self.kf.processNoiseCov[i, i] = 1e-4
-        for i in range(3, 7):  # quaternion x, y, z, w
-            self.kf.processNoiseCov[i, i] = 1e-3
-        for i in range(7, 10):  # vx, vy, vz
-            self.kf.processNoiseCov[i, i] = 1e-4
-        
-
-        # Measurement noise covariance (R). Lower Values = More Trust = You have good cameras
-        self.kf.measurementNoiseCov = np.eye(7, dtype=np.float32)
-        for i in range(3):   # position
-            self.kf.measurementNoiseCov[i, i] = 1e-4
-        for i in range(3, 7):  # quaternion
-            self.kf.measurementNoiseCov[i, i] = 1e-4
-        
-        self.kf.errorCovPost = np.eye(10, dtype=np.float32)
-
-        # Initial state
-        self.kf.statePost = np.zeros((10, 1), dtype=np.float32)
-        self.kf.statePost[3:7] = np.array([[0], [0], [0], [1]], dtype=np.float32)  # Identity quaternion
-
-    def correct(self, tvec, rvec):
-        quat = rvec_to_quat(rvec)
-        measurement = np.vstack((tvec.reshape(3, 1), np.array(quat).reshape(4, 1))).astype(np.float32)
-        self.kf.correct(measurement)
-
-    def predict(self):
-        pred = self.kf.predict()
-        pred_tvec = pred[0:3].flatten()
-        pred_quat = pred[3:7].flatten()
-        # Normalize quaternion to prevent drift
-        pred_quat /= np.linalg.norm(pred_quat)
-        pred_rvec = quat_to_rvec(pred_quat).flatten()
-        return pred_tvec, pred_rvec
 
 def detect_markers(frame, gray, aruco_dicts, parameters):
     all_corners, all_ids = [], []

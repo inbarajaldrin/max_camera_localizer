@@ -8,7 +8,6 @@ Usage of this package will require the UR ROS 2 driver and cv2.
 To install, place this repository in the src directory of your workspace. Then, build your workspace. 
 
 To run, first make sure a UR driver is running. Then, run `ros2 run max_camera_localizer localize` inside your workspace. 
-If you wish to test your driver connection, run `ros2 run max_camera_localizer test_ros` instead.
 
 A preview window will appear, picking one camera accessible to the system. Press ESC to select this camera, or press any other key to move onto the next camera. Once you select your camera, a more detailed window will appear marking Aruco position and annotating details in the top left corner. If you know your camera ID and would like to skip this process, pass the additional arg `--camera-id [YOUR_ID]`. 
 

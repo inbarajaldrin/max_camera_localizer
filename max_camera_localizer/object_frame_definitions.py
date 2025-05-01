@@ -43,7 +43,6 @@ def define_body_frame_allen_key(p1, p2, p3, width=0.005):
     contact_points = [(i, position, normvec) for i, (position, normvec) in enumerate(zip(positions, normvecs))]
     return origin, quat, contact_points
 
-
 def define_body_frame_pliers(p1, p2, p3, widths=[0.005, 0.005, 0.012, 0.012]):
     # Identify the 3.7cm side
     dists = [
@@ -86,3 +85,36 @@ def define_body_frame_pliers(p1, p2, p3, widths=[0.005, 0.005, 0.012, 0.012]):
     positions = [position - width * normvec for position, normvec, width in zip(positions, normvecs, widths)]
     contact_points = [(i, position, normvec) for i, (position, normvec) in enumerate(zip(positions, normvecs))]
     return origin, quat, contact_points
+
+
+def define_jenga_contacts(world_pos, world_rot, width, length, thick):
+    "Contact points as (idx, pos, normvec)"
+    # Origin is block center, on top
+    # Define points 1 and 2 as +-Y on -X side
+    # Define points 3 and 4 as +-Y on +X side
+    # Define points 5 adn 6 as +-X on center
+
+    #     1         3
+    #   __v_________v__
+    #   |             |
+    # 6>|      x      |<5
+    #   |_____________|
+    #     ^         ^
+    #     2         4
+
+    rot_matrix = R.from_quat(world_rot).as_matrix()
+    diff_x = 0.5 * length
+    diff_x_small = 0.35 * length
+    diff_y = 0.5 * width
+    diff_z = -0.5 * thick
+    local_normals = np.array([[0, -1, 0], [0,  1, 0],
+                              [0, -1, 0], [0,  1, 0],
+                              [-1, 0, 0], [ 1, 0, 0]])
+    world_normals = [rot_matrix @ normvec for normvec in local_normals]
+    local_positions = np.array([[-diff_x_small, diff_y, diff_z], [-diff_x_small, -diff_y, diff_z], 
+                                [ diff_x_small, diff_y, diff_z], [ diff_x_small, -diff_y, diff_z], 
+                                [diff_x, 0, diff_z], [-diff_x, 0, diff_z]])
+    world_positions = [rot_matrix @ pos + world_pos for pos in local_positions]
+    contact_points = [(i, position, normvec) for i, (position, normvec) in enumerate(zip(world_positions, world_normals))]
+
+    return contact_points

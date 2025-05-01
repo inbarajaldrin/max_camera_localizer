@@ -1,7 +1,7 @@
 # aruco_pose_bridge.py
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import PoseStamped, PoseArray, Pose, Vector3Stamped, PointStamped
+from geometry_msgs.msg import PoseStamped, Pose, Vector3Stamped, PointStamped
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import threading
@@ -61,7 +61,7 @@ class ArucoPoseBridge(Node):
     def publish_marker_poses(self, marker_data):
         now = self.get_clock().now().to_msg()
 
-        for marker_id, (pos, rot) in marker_data.items():
+        for marker_id, (pos, rot, contacts) in marker_data.items():
             p = Pose()
             p.position.x, p.position.y, p.position.z = pos
             p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w = rot

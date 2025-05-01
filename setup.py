@@ -20,9 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'test_ros = max_camera_localizer.test_tcp_echo:main',
-            'localize = max_camera_localizer.aruco_localization:main',
-            'localize_blue = max_camera_localizer.blue_object_localization:main'
+            'localize = max_camera_localizer.merged_localization:main'
         ],
     },
 )
