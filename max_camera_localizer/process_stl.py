@@ -4,26 +4,47 @@ import matplotlib.pyplot as plt
 from matplotlib.path import Path
 import os
 from scipy.interpolate import splprep, splev, interp1d
+from ament_index_python.packages import get_package_share_directory
 
-mesh_key = trimesh.load_mesh(os.path.dirname(os.path.realpath(__file__))+"/STL/Allen Key.STL")
-origin_key = [28.33, 0, 37] # STL file doesn't preserve origin... probably should refactor other origin-setting.
-mesh_wrench = trimesh.load_mesh(os.path.dirname(os.path.realpath(__file__))+"/STL/Wrench.STL")
-origin_wrench = [49, 0, 26]
+def trirotmat(angledeg, direction, point):
+    return trimesh.transformations.rotation_matrix(angle=np.radians(angledeg), direction=direction, point=point)
 
-def get_path(mesh, origin):
-    direction = np.array([0, 1, 0])  # y is up/down for meshes
+pkg_dir = get_package_share_directory("max_camera_localizer")
+stl_path_key = os.path.join(pkg_dir, "STL", "Allen Key.STL")
+stl_path_wrench = os.path.join(pkg_dir, "STL", "Wrench.STL")
+
+# mesh_key = trimesh.load_mesh(os.path.dirname(os.path.realpath(__file__))+"/STL/Allen Key.STL")
+mesh_key = trimesh.load_mesh(stl_path_key)
+origin_key = np.array([28.33, 0, 37]) # STL file doesn't preserve origin... probably should refactor other origin-setting.
+mesh_key.apply_translation(-origin_key)
+mesh_key.apply_transform(trirotmat(90, [1,0,0], [0,0,0]))
+# scene = trimesh.Scene()
+# scene.add_geometry(mesh_key)
+# scene.show()
+# mesh_wrench = trimesh.load_mesh(os.path.dirname(os.path.realpath(__file__))+"/STL/Wrench.STL")
+mesh_wrench = trimesh.load_mesh(stl_path_wrench)
+origin_wrench = np.array([49, 0, 26])
+mesh_wrench.apply_translation(-origin_wrench)
+mesh_wrench.apply_transform(trirotmat(90, [1,0,0], [0,0,0]))
+mesh_wrench.apply_transform(trirotmat(-90, [0,0,-1], [0,0,0])) # Rotate to match origin definition in object_frame_definitions. Much ad hoc.
+# scene = trimesh.Scene()
+# scene.add_geometry(mesh_wrench)
+# scene.show()
+
+def get_path(mesh):
+    direction = np.array([0, 0, 1])  # z up/down
     direction = direction / np.linalg.norm(direction)
 
     # Get the centroid of the mesh
-    plane_y = mesh.center_mass[1]
-    plane_origin = [origin[0], plane_y, origin[2]]
+    plane_z = mesh.center_mass[2]
+    plane_origin = [0, 0, plane_z]
 
     # Intersect mesh with all planes
     all_paths, to3D, _ = trimesh.intersections.mesh_multiplane(mesh, 
                                                     plane_origin=plane_origin,
                                                     plane_normal=direction,
                                                     heights=[0])
-    return all_paths[0]
+    return all_paths[0], to3D[0], plane_z
 
 def group_segments_into_loops(segments, tol=1e-5):
     used = np.zeros(len(segments), dtype=bool)
@@ -139,8 +160,8 @@ def compute_curvature(tck, u_eval):
 
     return arc_length, kappa
 
-def get_curve(mesh, origin, ax_geom, ax_curv):
-    path = get_path(mesh, origin)
+def get_curve(mesh, ax_geom=None, ax_curv=None):
+    path, to3D, height = get_path(mesh)
     all_loops = group_segments_into_loops(path)
     polylines = [segments_to_polyline(loop) for loop in all_loops if len(loop) > 2]
 
@@ -159,39 +180,55 @@ def get_curve(mesh, origin, ax_geom, ax_curv):
 
     # Resample and fit
     resampled = resample_polyline_equally(polylines[outermost_loop], n_points=1000)
-    ax_geom.scatter(resampled[:, 0], resampled[:, 1], alpha=0.3)
 
     # Fit spline
     tck = fit_spline_arclength_weighted(resampled, s=50.0, per=1)
     u_eval = np.linspace(0, 1, 1000)
     x_smooth, y_smooth = splev(u_eval, tck)
-    ax_geom.plot(x_smooth, y_smooth, 'r')
-    ax_geom.plot(x_smooth[0], y_smooth[0], 'o', color='green', markersize=8, label='Start')
     arrow_dx = x_smooth[1] - x_smooth[0]
     arrow_dy = y_smooth[1] - y_smooth[0]
-    ax_geom.arrow(x_smooth[0], y_smooth[0], 50*arrow_dx, 50*arrow_dy,
-                head_width=2.0, head_length=3.0, fc='green', ec='green', length_includes_head=True)
 
-    # Draw original polylines
-    for pline in polylines:
-        ax_geom.plot(pline[:, 0], pline[:, 1], 'k--', alpha=0.3)
+    if ax_geom is not None:
+        ax_geom.scatter(resampled[:, 0], resampled[:, 1], alpha=0.3)
+        ax_geom.plot(x_smooth, y_smooth, 'r')
+        ax_geom.plot(x_smooth[0], y_smooth[0], 'o', color='green', markersize=8, label='Start')
+        ax_geom.arrow(x_smooth[0], y_smooth[0], 50*arrow_dx, 50*arrow_dy,
+                    head_width=2.0, head_length=3.0, fc='green', ec='green', length_includes_head=True)
+        # Draw original polylines
+        for pline in polylines:
+            ax_geom.plot(pline[:, 0], pline[:, 1], 'k--', alpha=0.3)
 
-    ax_geom.set_aspect('equal')
-    ax_geom.set_title("Smoothed Contour")
+        ax_geom.set_aspect('equal')
+        ax_geom.set_title("Smoothed Contour")
 
     arc_length, kappa = compute_curvature(tck, u_eval)
 
-    # Curvature plot
-    ax_curv.plot(arc_length, kappa, label='Curvature (1/mm)')
-    ax_curv.set_xlabel("Normalized Arc Length")
-    ax_curv.set_ylabel("Curvature κ")
-    ax_curv.set_title("Curvature vs Arc Length")
-    ax_curv.grid(True)
+    if ax_curv is not None:
+        # Curvature plot
+        ax_curv.plot(arc_length, kappa, label='Curvature (1/mm)')
+        ax_curv.set_xlabel("Normalized Arc Length")
+        ax_curv.set_ylabel("Curvature κ")
+        ax_curv.set_title("Curvature vs Arc Length")
+        ax_curv.grid(True)
+    
+    return x_smooth, y_smooth, kappa, height
 
-fig, axs = plt.subplots(2, 2, figsize=(12, 8))
-# Run for both meshes
-get_curve(mesh_key, origin_key, axs[0, 1], axs[0, 0])
-get_curve(mesh_wrench, origin_wrench, axs[1, 1], axs[1, 0])
+x_key, y_key, k_key, z_key = get_curve(mesh_key)
+CONTOUR_ALLEN_KEY = {
+    'xyz': np.column_stack((x_key, y_key, [z_key]*len(x_key))),
+    'kappa': k_key,
+}
+x_wrench, y_wrench, k_wrench, z_wrench = get_curve(mesh_wrench)
+CONTOUR_WRENCH = {
+    'xyz': np.column_stack((x_wrench, y_wrench, [z_wrench]*len(x_wrench))),
+    'kappa': k_wrench,
+}
 
-plt.tight_layout()
-plt.show()
+if __name__ == "__main__":
+    # If running this script directly, show plots
+    fig, axs = plt.subplots(2, 2, figsize=(12, 8))
+    get_curve(mesh_key, axs[0, 1], axs[0, 0])
+    get_curve(mesh_wrench, axs[1, 1], axs[1, 0])
+
+    plt.tight_layout()
+    plt.show()

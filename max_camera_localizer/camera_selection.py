@@ -22,6 +22,9 @@ def select_camera(available_ids):
             ret, frame = cap.read()
             if not ret:
                 break
+            cv2.putText(frame, f"PREVIEW OF CAMERA {cam_id}", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            cv2.putText(frame, "Press ESC to SELECT this camera", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            cv2.putText(frame, "Press any key to SKIP this camera", (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
             cv2.imshow(f"Camera ID {cam_id}", frame)
             key = cv2.waitKey(1)
             if key == 27:  # ESC

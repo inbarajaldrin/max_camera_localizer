@@ -20,3 +20,29 @@ This script assumes a fixed translation from the end effector frame origin and t
 ## Example Command:
 
 `ros2 run max_camera_localizer localize --camera-id 8 --suppress-prints`
+
+## Workspace Structure:
+
+```
+YOUR_ROS2_WORKSPACE/
+├── src/
+│   └── max_camera_localizer/
+│       ├── max_camera_localizer/
+│       │   ├── trash/
+│       │   │   └── [unused python files]
+│       │   ├── aruco_pose_bridge.py
+│       │   ├── camera_selection.py
+│       │   ├── detection_functions.py
+│       │   ├── geometric_functions.py
+│       │   ├── kalman_functions.py
+│       │   ├── merged_localization.py
+│       │   ├── object_frame_definitions
+│       │   └── process_stl.py
+│       ├── STL/
+│       │   ├── Allen Key.STL
+│       │   └── Wrench.STL
+│       ├── package.xml
+│       ├── README.md
+│       ├── setup.cfg
+│       └── setup.py
+```

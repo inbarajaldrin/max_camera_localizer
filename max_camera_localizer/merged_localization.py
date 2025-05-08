@@ -5,7 +5,7 @@ from scipy.spatial.transform import Rotation as R
 from max_camera_localizer.camera_selection import detect_available_cameras, select_camera
 from max_camera_localizer.aruco_pose_bridge import ArucoPoseBridge
 from max_camera_localizer.geometric_functions import rvec_to_quat, transform_orientation_cam_to_world, transform_point_cam_to_world, transform_points_world_to_img
-from max_camera_localizer.detection_functions import detect_markers, detect_blue_object_positions, estimate_pose, identify_objects_from_blobs, attempt_recovery_for_missing_objects
+from max_camera_localizer.detection_functions import detect_markers, detect_blue_object_positions, estimate_pose, identify_objects_from_blobs, attempt_recovery_for_missing_objects, detect_green_pushers
 from max_camera_localizer.object_frame_definitions import define_jenga_contacts
 import threading
 import rclpy
@@ -35,7 +35,7 @@ ARUCO_DICTS = {
 }
 OBJECT_DICTS = {
     "allen_key": [37, 102, 126],
-    "pliers": [37, 70, 70]
+    "wrench": [37, 70, 70]
 }
 
 trackers = {}
@@ -94,7 +94,7 @@ def draw_overlay(frame, cam_pos, cam_quat, object_data, marker_data, frame_idx, 
 def draw_identified_triangles(frame, camera_matrix, cam_pos, cam_quat, identified_objects, marker_data):
     color_map = {
         "allen_key": (0, 255, 0),   # Green
-        "pliers": (0, 0, 255),      # Red
+        "wrench": (0, 0, 255),      # Red
     }
 
     for obj in identified_objects:
@@ -241,6 +241,7 @@ def main():
         # Blue Blob Section
         world_points, image_points = detect_blue_object_positions(frame, CAMERA_MATRIX, cam_pos, cam_quat)
         identified_objects = identify_objects_from_blobs(world_points, OBJECT_DICTS)
+        world_points_pushers, image_points_pushers = detect_green_pushers(frame, CAMERA_MATRIX, cam_pos, cam_quat)
         missing = False
         for det in detected_objects:
             if not any(obj["name"] == det["name"] for obj in identified_objects):
