@@ -2,6 +2,7 @@ import cv2
 import cv2.aruco as aruco
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+from scipy.spatial import cKDTree
 from max_camera_localizer.camera_selection import detect_available_cameras, select_camera
 from max_camera_localizer.aruco_pose_bridge import ArucoPoseBridge
 from max_camera_localizer.geometric_functions import rvec_to_quat, transform_orientation_cam_to_world, transform_point_cam_to_world, transform_points_world_to_img
@@ -91,7 +92,7 @@ def draw_overlay(frame, cam_pos, cam_quat, object_data, marker_data, frame_idx, 
         world_euler = R.from_quat(world_quat).as_euler('xyz', degrees=True)
         put_line(f"Marker {marker_id} Euler: r={world_euler[0]: 5.1f}deg, p={world_euler[1]: 5.1f}deg, y={world_euler[2]: 5.1f}deg", (0, 255, 0))
 
-def draw_identified_triangles(frame, camera_matrix, cam_pos, cam_quat, identified_objects, marker_data):
+def draw_identified_triangles(frame, camera_matrix, cam_pos, cam_quat, identified_objects, marker_data, nearest_pushers):
     color_map = {
         "allen_key": (0, 255, 0),   # Green
         "wrench": (0, 0, 255),      # Red
@@ -153,11 +154,9 @@ def draw_identified_triangles(frame, camera_matrix, cam_pos, cam_quat, identifie
         # Draw low-res Contour
         contour = obj["contour"]
         contour_xyz = contour["xyz"]
-        print(contour_xyz)
         contour_img = transform_points_world_to_img(contour_xyz, cam_pos, cam_quat, camera_matrix)
         contour_img = np.array(contour_img)
         contour_img.reshape((-1, 1, 2))
-        print(contour_img)
         cv2.polylines(frame,[contour_img],False,color)
 
     for marker_id, (world_pos, world_quat, contact_points) in marker_data.items():
@@ -169,6 +168,18 @@ def draw_identified_triangles(frame, camera_matrix, cam_pos, cam_quat, identifie
         contact_axes_img = transform_points_world_to_img(contact_axes_start, cam_pos, cam_quat, camera_matrix)
         for pos, ax in zip(contact_poses_img, contact_axes_img):
             cv2.arrowedLine(frame, ax, pos, (255, 255, 255), 2, tipLength=0.3)
+
+    for nearest_pusher in nearest_pushers:
+        pusher_point_world = nearest_pusher['pusher_location']
+        pusher_point_img = transform_points_world_to_img([pusher_point_world], cam_pos, cam_quat, camera_matrix)
+
+        contour_point_world = nearest_pusher['nearest_point']
+        contour_point_img = transform_points_world_to_img([contour_point_world], cam_pos, cam_quat, camera_matrix)
+        cv2.arrowedLine(frame, pusher_point_img[0], contour_point_img[0], (0, 255, 0), 2, tipLength=0.3)
+        
+        contour_id = nearest_pusher['local_contour_index']
+        contour_kappa = nearest_pusher['kappa']
+
 
     return frame
 
@@ -250,23 +261,54 @@ def main():
         # Blue Blob Section
         lower_blue = np.array([100, 80, 50])
         upper_blue = np.array([140, 255, 255])
-        lower_green = np.array([60, 80, 50])
-        upper_green = np.array([100, 255, 255])
+        lower_green = np.array([40, 80, 50])
+        upper_green = np.array([80, 255, 255])
         world_points, image_points = detect_color_blobs(frame, [lower_blue, upper_blue], (255,0,0), CAMERA_MATRIX, cam_pos, cam_quat)
         identified_objects = identify_objects_from_blobs(world_points, OBJECT_DICTS)
         world_points_pushers, image_points_pushers = detect_color_blobs(frame, [lower_green, upper_green], (0,255,0), CAMERA_MATRIX, cam_pos, cam_quat)
+        
+
+        # Working block for pusher-object interaction detection
+        # For now, gets nearest contour point to each pusher
+        all_xyz = []
+        all_kappa = []
+        all_meta = []  # to keep track of which object and index a point came from
+        nearest_pushers = []
+        if detected_objects and world_points_pushers:
+
+            for obj_idx, obj in enumerate(detected_objects):
+                xyz = obj['contour']['xyz']
+                kappa = obj['contour']['kappa']
+                all_xyz.extend(xyz)
+                all_kappa.extend(kappa)
+                all_meta.extend([(obj_idx, i) for i in range(len(xyz))])
+            all_xyz = np.array(all_xyz)
+            all_kappa = np.array(all_kappa)
+
+            tree = cKDTree(all_xyz)
+            distances, indices = tree.query(world_points_pushers)
+            for pusher_idx, contour_idx in enumerate(indices):
+                nearest_point = all_xyz[contour_idx]
+                kappa_value = all_kappa[contour_idx]
+                obj_index, local_contour_index = all_meta[contour_idx]
+                nearest_pushers.append({
+                    'pusher_index': pusher_idx,
+                    'pusher_location': world_points_pushers[pusher_idx],
+                    'nearest_point': nearest_point,
+                    'kappa': kappa_value,
+                    'object_index': obj_index,
+                    'local_contour_index': local_contour_index
+                })
+
+
+        # Check for disappeared objects
         missing = False
         for det in detected_objects:
             if not any(obj["name"] == det["name"] for obj in identified_objects):
                 missing = True
         
-        if missing:
-            # Attempt recovery if any objects are missing
-            recovered_objects = attempt_recovery_for_missing_objects(
-                detected_objects,
-                world_points,
-                known_triangles=OBJECT_DICTS
-            )
+        if missing: # Attempt recovery if any objects are missing
+            recovered_objects = attempt_recovery_for_missing_objects(detected_objects, world_points, known_triangles=OBJECT_DICTS)
         else:
             recovered_objects = None
 
@@ -278,12 +320,11 @@ def main():
 
         detected_objects = identified_objects.copy()
 
-
         bridge_node.publish_camera_pose(cam_pos, cam_quat)
         bridge_node.publish_object_poses(identified_objects)
         bridge_node.publish_marker_poses(marker_data)
         draw_overlay(frame, cam_pos, cam_quat, identified_objects, marker_data, frame_idx, ee_pos, ee_quat)
-        draw_identified_triangles(frame, CAMERA_MATRIX, cam_pos, cam_quat, identified_objects, marker_data)
+        draw_identified_triangles(frame, CAMERA_MATRIX, cam_pos, cam_quat, identified_objects, marker_data, nearest_pushers)
 
         cv2.imshow("Merged Detection", frame)
         if talk:
