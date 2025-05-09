@@ -205,7 +205,7 @@ def get_curve(mesh, ax_geom=None, ax_curv=None):
 
     if ax_curv is not None:
         # Curvature plot
-        ax_curv.plot(arc_length, kappa, label='Curvature (1/mm)')
+        ax_curv.plot(arc_length, kappa, label='Curvature (1/m)')
         ax_curv.set_xlabel("Normalized Arc Length")
         ax_curv.set_ylabel("Curvature κ")
         ax_curv.set_title("Curvature vs Arc Length")

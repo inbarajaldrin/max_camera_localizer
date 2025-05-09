@@ -1,6 +1,6 @@
 from scipy.spatial.transform import Rotation as R
 import numpy as np
-from max_camera_localizer.process_stl import POINTS_ALLEN_KEY, KAPPA_ALLEN_KEY, POINTS_WRENCH, KAPPA_WRENCH
+from max_camera_localizer.process_stl import CONTOUR_ALLEN_KEY, CONTOUR_WRENCH
 
 def define_body_frame_allen_key(p1, p2, p3, width=0.005):
     "Returns Origin, Quat, {Contact Points}"
@@ -42,7 +42,11 @@ def define_body_frame_allen_key(p1, p2, p3, width=0.005):
     positions = [A, A, B, B, C, C]
     positions = [position - width * normvec for position, normvec in zip(positions, normvecs)]
     contact_points = [(i, position, normvec) for i, (position, normvec) in enumerate(zip(positions, normvecs))]
-    return origin, quat, contact_points, POINTS_ALLEN_KEY, KAPPA_ALLEN_KEY
+
+    # Apply transform to contour (must convert to meters as well)
+    contour = CONTOUR_ALLEN_KEY.copy()
+    contour['xyz'] = (0.001 * rot_matrix @ contour['xyz'].T).T + origin
+    return origin, quat, contact_points, contour
 
 def define_body_frame_wrench(p1, p2, p3, widths=[0.005, 0.005, 0.012, 0.012]):
     # Identify the 3.7cm side
@@ -85,7 +89,11 @@ def define_body_frame_wrench(p1, p2, p3, widths=[0.005, 0.005, 0.012, 0.012]):
     positions = [A, B, C, C]
     positions = [position - width * normvec for position, normvec, width in zip(positions, normvecs, widths)]
     contact_points = [(i, position, normvec) for i, (position, normvec) in enumerate(zip(positions, normvecs))]
-    return origin, quat, contact_points, POINTS_WRENCH, KAPPA_WRENCH
+
+    # Apply transform to contour (must convert to meters as well)
+    contour = CONTOUR_WRENCH.copy()
+    contour['xyz'] = (0.001 * rot_matrix @ contour['xyz'].T).T + origin
+    return origin, quat, contact_points, contour
 
 
 def define_jenga_contacts(world_pos, world_rot, width, length, thick):

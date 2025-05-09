@@ -20,14 +20,11 @@ def detect_markers(frame, gray, aruco_dicts, parameters):
             aruco.drawDetectedMarkers(frame, corners, ids)
     return all_corners, all_ids
 
-def detect_blue_object_positions(frame, camera_matrix, cam_pos, cam_quat, height=0.01, min_area=120, merge_threshold=0.02):
+def detect_color_blobs(frame, color_range, color, camera_matrix, cam_pos, cam_quat, height=0.01, min_area=120, merge_threshold=0.02):
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     
     # Define blue range in HSV
-    lower_blue = np.array([100, 80, 50])
-    upper_blue = np.array([140, 255, 255])
-    
-    mask = cv2.inRange(hsv, lower_blue, upper_blue)
+    mask = cv2.inRange(hsv, color_range[0], color_range[1])
     kernel = np.ones((15, 15), np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -78,68 +75,7 @@ def detect_blue_object_positions(frame, camera_matrix, cam_pos, cam_quat, height
         merged_world_points.append(cluster_avg)
     image_points = transform_points_world_to_img(merged_world_points, cam_pos, cam_quat, camera_matrix)
     for (u,v) in image_points:
-        cv2.circle(frame, (u, v), 5, (255, 0, 0), -1)
-    return merged_world_points, image_points
-
-def detect_green_pushers(frame, camera_matrix, cam_pos, cam_quat, height=0.01, min_area=20, merge_threshold=0.02):
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    
-    # Define green range in HSV
-    lower_green = np.array([60, 80, 50])
-    upper_green = np.array([100, 255, 255])
-    
-    mask = cv2.inRange(hsv, lower_green, upper_green)
-    kernel = np.ones((5, 5), np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    world_points = []
-    image_points = []
-
-    if contours:
-        for cnt in contours:
-            M = cv2.moments(cnt)
-            area = cv2.contourArea(cnt)            
-            if area < min_area:
-                continue  # skip tiny blobs
-            if M["m00"] > 0:
-                cv2.drawContours(frame, [cnt], 0, (255, 255, 255), 1)
-                cx = int(M["m10"] / M["m00"])
-                cy = int(M["m01"] / M["m00"])
-
-                # Step 1: Ray in camera frame
-                pixel = np.array([cx, cy, 1.0])
-                ray_cam = np.linalg.inv(camera_matrix) @ pixel
-
-                # Step 2: Transform ray to world frame
-                R_wc = R.from_quat(cam_quat).as_matrix()
-                ray_world = R_wc @ ray_cam
-                cam_origin_world = np.array(cam_pos)
-
-                # Step 3: Ray-plane intersection with z = height over table
-                t = (height - cam_origin_world[2]) / ray_world[2]
-                point_world = cam_origin_world + t * ray_world
-                world_points.append(point_world)
-
-    # Step 4: Merge nearby points in world frame
-    merged_world_points = []
-    used = set()
-    for i, pt in enumerate(world_points):
-        if i in used:
-            continue
-        cluster = [pt]
-        used.add(i)
-        for j in range(i + 1, len(world_points)):
-            if j in used:
-                continue
-            if np.linalg.norm(world_points[j] - pt) < merge_threshold:
-                cluster.append(world_points[j])
-                used.add(j)
-        cluster_avg = np.mean(cluster, axis=0)
-        merged_world_points.append(cluster_avg)
-    image_points = transform_points_world_to_img(merged_world_points, cam_pos, cam_quat, camera_matrix)
-    for (u,v) in image_points:
-        cv2.circle(frame, (u, v), 5, (0, 255, 0), -1)
+        cv2.circle(frame, (u, v), 5, color, -1)
     return merged_world_points, image_points
 
 def estimate_pose(frame, corners, ids, camera_matrix, dist_coeffs, marker_size,
@@ -232,6 +168,22 @@ def estimate_pose(frame, corners, ids, camera_matrix, dist_coeffs, marker_size,
         else:
             stability["confirmed"] = False
 
+def detect_object(p1, p2, p3, name, inferred):
+    if name == "allen_key":
+        pos, quat, contacts, contour = define_body_frame_allen_key(p1, p2, p3)
+    elif name == "wrench":
+        pos, quat, contacts, contour = define_body_frame_wrench(p1, p2, p3)
+    obj = {
+        "name": name,
+        "points": (p1, p2, p3),
+        "position": pos,
+        "quaternion": quat,
+        'inferred': inferred,
+        "contacts": contacts,
+        "contour": contour
+    }
+    return obj
+
 def identify_objects_from_blobs(world_points, object_dicts, tolerance=5.0):
     identified_objects = []
 
@@ -247,19 +199,7 @@ def identify_objects_from_blobs(world_points, object_dicts, tolerance=5.0):
             expected = sorted(template)
             diffs = [abs(a - b) for a, b in zip(sides, expected)]
             if all(d < tolerance for d in diffs):
-                if name == "allen_key":
-                    pos, quat, contacts, contour = define_body_frame_allen_key(p1, p2, p3)
-                elif name == "wrench":
-                    pos, quat, contacts, contour = define_body_frame_wrench(p1, p2, p3)
-
-                identified_objects.append({
-                    "name": name,
-                    "points": (p1, p2, p3),
-                    "position": pos,
-                    "quaternion": quat,
-                    'inferred': False,
-                    "contacts": contacts
-                })
+                identified_objects.append(detect_object(p1, p2, p3, name, False))
                 break  # One match per triangle
 
     return identified_objects
@@ -301,22 +241,11 @@ def attempt_recovery_for_missing_objects(last_objects, current_points, known_tri
                 inferred_p3 = pick_best_candidate(candidates, unmatched_prev_pt)
             else:
                 inferred_p3 = None
-            print("INFERRED", inferred_p3)
+            # print("INFERRED", inferred_p3)
 
             # for inferred_p3 in candidates:
             try:
-                if name == "allen_key":
-                    pos, quat, contacts, contour = define_body_frame_allen_key(cur_pts[0], cur_pts[1], inferred_p3)
-                elif name == "wrench":
-                    pos, quat, contacts, contour = define_body_frame_wrench(cur_pts[0], cur_pts[1], inferred_p3)
-                recovered.append({
-                    "name": name,
-                    "points": (cur_pts[0], cur_pts[1], inferred_p3),
-                    "position": pos,
-                    "quaternion": quat,
-                    "inferred": True,
-                    "contacts": contacts
-                })
+                recovered.append(detect_object(cur_pts[0], cur_pts[1], inferred_p3, name, True))
             except:
                 continue
     return recovered

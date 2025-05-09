@@ -5,7 +5,7 @@ from scipy.spatial.transform import Rotation as R
 from max_camera_localizer.camera_selection import detect_available_cameras, select_camera
 from max_camera_localizer.aruco_pose_bridge import ArucoPoseBridge
 from max_camera_localizer.geometric_functions import rvec_to_quat, transform_orientation_cam_to_world, transform_point_cam_to_world, transform_points_world_to_img
-from max_camera_localizer.detection_functions import detect_markers, detect_blue_object_positions, estimate_pose, identify_objects_from_blobs, attempt_recovery_for_missing_objects, detect_green_pushers
+from max_camera_localizer.detection_functions import detect_markers, detect_color_blobs, estimate_pose, identify_objects_from_blobs, attempt_recovery_for_missing_objects
 from max_camera_localizer.object_frame_definitions import define_jenga_contacts
 import threading
 import rclpy
@@ -150,6 +150,15 @@ def draw_identified_triangles(frame, camera_matrix, cam_pos, cam_quat, identifie
         for pos, ax in zip(contact_poses_img, contact_axes_img):
             cv2.arrowedLine(frame, ax, pos, (255, 255, 255), 2, tipLength=0.3)
 
+        # Draw low-res Contour
+        contour = obj["contour"]
+        contour_xyz = contour["xyz"]
+        print(contour_xyz)
+        contour_img = transform_points_world_to_img(contour_xyz, cam_pos, cam_quat, camera_matrix)
+        contour_img = np.array(contour_img)
+        contour_img.reshape((-1, 1, 2))
+        print(contour_img)
+        cv2.polylines(frame,[contour_img],False,color)
 
     for marker_id, (world_pos, world_quat, contact_points) in marker_data.items():
         # Draw contact points
@@ -239,9 +248,13 @@ def main():
                 marker_data[marker_id] = (world_pos, world_rot, world_contacts)
 
         # Blue Blob Section
-        world_points, image_points = detect_blue_object_positions(frame, CAMERA_MATRIX, cam_pos, cam_quat)
+        lower_blue = np.array([100, 80, 50])
+        upper_blue = np.array([140, 255, 255])
+        lower_green = np.array([60, 80, 50])
+        upper_green = np.array([100, 255, 255])
+        world_points, image_points = detect_color_blobs(frame, [lower_blue, upper_blue], (255,0,0), CAMERA_MATRIX, cam_pos, cam_quat)
         identified_objects = identify_objects_from_blobs(world_points, OBJECT_DICTS)
-        world_points_pushers, image_points_pushers = detect_green_pushers(frame, CAMERA_MATRIX, cam_pos, cam_quat)
+        world_points_pushers, image_points_pushers = detect_color_blobs(frame, [lower_green, upper_green], (0,255,0), CAMERA_MATRIX, cam_pos, cam_quat)
         missing = False
         for det in detected_objects:
             if not any(obj["name"] == det["name"] for obj in identified_objects):
