@@ -9,6 +9,8 @@ def canonicalize_euler(orientation):
     roll, pitch, yaw = orientation
     if abs(pitch) < 1 and abs(abs(roll) - 180) < 1:
         return (0.0, 180.0, (yaw % 360)-180)
+    else:
+        return orientation
 
 def draw_text(frame, cam_pos, cam_quat, object_data, frame_idx, ee_pos, ee_quat):
     font = cv2.FONT_HERSHEY_SIMPLEX
