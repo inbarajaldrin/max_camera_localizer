@@ -17,7 +17,7 @@ def detect_markers(frame, gray, aruco_dicts, parameters):
         if ids is not None:
             all_corners.extend(corners)
             all_ids.extend(ids.flatten())
-            aruco.drawDetectedMarkers(frame, corners, ids)
+            # aruco.drawDetectedMarkers(frame, corners, ids)
     return all_corners, all_ids
 
 def detect_color_blobs(frame, color_range, color, camera_matrix, cam_pos, cam_quat, height=0.01, min_area=120, merge_threshold=0.02):
@@ -81,7 +81,7 @@ def detect_color_blobs(frame, color_range, color, camera_matrix, cam_pos, cam_qu
 def estimate_pose(frame, corners, ids, camera_matrix, dist_coeffs, marker_size,
                   kalman_filters, marker_stabilities, last_seen_frames, current_frame, cam_pos, cam_quat, talk=True):
     max_movement = 0.05  # meters
-    hold_required = 3    # frames it must persist
+    hold_required = 5    # frames it must persist
     half_size = marker_size / 2
 
     if corners and ids:
@@ -135,7 +135,7 @@ def estimate_pose(frame, corners, ids, camera_matrix, dist_coeffs, marker_size,
                     blended_rvec = quat_to_rvec(blended_quat)
                     blended_tvec = blend_factor * tvec_flat + (1 - blend_factor) * pred_tvec
                     kalman.correct(blended_tvec, blended_rvec)
-                    cv2.drawFrameAxes(frame, camera_matrix, dist_coeffs, blended_rvec, blended_tvec, marker_size * 0.5)
+                    # cv2.drawFrameAxes(frame, camera_matrix, dist_coeffs, blended_rvec, blended_tvec, marker_size * 0.5)
                     last_seen_frames[marker_id] = current_frame
                     # Convert to world frame
                     marker_pos_world = transform_point_cam_to_world(blended_tvec, cam_pos, cam_quat)
@@ -155,8 +155,7 @@ def estimate_pose(frame, corners, ids, camera_matrix, dist_coeffs, marker_size,
 
         if current_frame - last_seen < 15:
             pred_tvec, pred_rvec = kalman.predict()
-            cv2.drawFrameAxes(frame, camera_matrix, dist_coeffs,
-                              pred_rvec.reshape(3, 1), pred_tvec.reshape(3, 1), marker_size * 0.5)
+            # cv2.drawFrameAxes(frame, camera_matrix, dist_coeffs, pred_rvec, pred_tvec, marker_size * 0.5)
             if not current_frame == last_seen:
                 # Convert to world frame
                 pred_quat = rvec_to_quat(pred_rvec)

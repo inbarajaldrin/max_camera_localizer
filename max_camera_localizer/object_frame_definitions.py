@@ -1,6 +1,6 @@
 from scipy.spatial.transform import Rotation as R
 import numpy as np
-from max_camera_localizer.process_stl import CONTOUR_ALLEN_KEY, CONTOUR_WRENCH
+from max_camera_localizer.process_stl import CONTOUR_ALLEN_KEY, CONTOUR_WRENCH, CONTOUR_JENGA
 
 def define_body_frame_allen_key(p1, p2, p3, width=0.005):
     "Returns Origin, Quat, {Contact Points}"
@@ -95,6 +95,29 @@ def define_body_frame_wrench(p1, p2, p3, widths=[0.005, 0.005, 0.012, 0.012]):
     contour['xyz'] = (0.001 * rot_matrix @ contour['xyz'].T).T + origin
     return origin, quat, contact_points, contour
 
+def define_jenga_contour(world_pos, world_rot):
+    rot_matrix = R.from_quat(world_rot).as_matrix()
+    contour = CONTOUR_JENGA.copy()
+    contour['xyz'] = (0.001 * rot_matrix @ contour['xyz'].T).T + world_pos
+    return contour
+
+def hard_define_contour(position, orientation, name):
+    # position in mm
+    position = [0.001*pos for pos in position]
+    # orientation in euler degrees
+    rot_matrix = R.from_euler('xyz', orientation, degrees=True).as_matrix()
+    if name == "allen_key":
+        contour = CONTOUR_ALLEN_KEY.copy()
+        contour['xyz'] = (0.001 * rot_matrix @ contour['xyz'].T).T + position
+    elif name == "wrench":
+        contour = CONTOUR_WRENCH.copy()
+        contour['xyz'] = (0.001 * rot_matrix @ contour['xyz'].T).T + position
+    elif name == "jenga":
+        contour = CONTOUR_JENGA.copy()
+        contour['xyz'] = (0.001 * rot_matrix @ contour['xyz'].T).T + position
+    else:
+        return None
+    return contour
 
 def define_jenga_contacts(world_pos, world_rot, width, length, thick):
     "Contact points as (idx, pos, normvec)"

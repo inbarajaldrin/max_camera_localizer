@@ -13,23 +13,21 @@ pkg_dir = get_package_share_directory("max_camera_localizer")
 stl_path_key = os.path.join(pkg_dir, "STL", "Allen Key.STL")
 stl_path_wrench = os.path.join(pkg_dir, "STL", "Wrench.STL")
 
-# mesh_key = trimesh.load_mesh(os.path.dirname(os.path.realpath(__file__))+"/STL/Allen Key.STL")
 mesh_key = trimesh.load_mesh(stl_path_key)
 origin_key = np.array([28.33, 0, 37]) # STL file doesn't preserve origin... probably should refactor other origin-setting.
 mesh_key.apply_translation(-origin_key)
 mesh_key.apply_transform(trirotmat(90, [1,0,0], [0,0,0]))
-# scene = trimesh.Scene()
-# scene.add_geometry(mesh_key)
-# scene.show()
-# mesh_wrench = trimesh.load_mesh(os.path.dirname(os.path.realpath(__file__))+"/STL/Wrench.STL")
+
 mesh_wrench = trimesh.load_mesh(stl_path_wrench)
 origin_wrench = np.array([49, 0, 26])
 mesh_wrench.apply_translation(-origin_wrench)
 mesh_wrench.apply_transform(trirotmat(90, [1,0,0], [0,0,0]))
 mesh_wrench.apply_transform(trirotmat(-90, [0,0,-1], [0,0,0])) # Rotate to match origin definition in object_frame_definitions. Much ad hoc.
-# scene = trimesh.Scene()
-# scene.add_geometry(mesh_wrench)
-# scene.show()
+
+# No STL needed for the jenga block
+mesh_jenga = trimesh.creation.box(extents=[72, 24, 14])
+mesh_jenga.apply_translation([0, 0, -7])
+
 
 def get_path(mesh):
     direction = np.array([0, 0, 1])  # z up/down
@@ -140,6 +138,23 @@ def fit_spline_arclength_weighted(polyline, s=1.0, per=1, pow=1):
     tck, _ = splprep([x, y], u=u, s=s, per=per)
     return tck
 
+def resample_spline_by_arclength(tck, n_points=1000):
+    u_dense = np.linspace(0, 1, 5000)
+    x_dense, y_dense = splev(u_dense, tck)
+    coords_dense = np.stack((x_dense, y_dense), axis=1)
+
+    deltas = np.diff(coords_dense, axis=0)
+    dists = np.linalg.norm(deltas, axis=1)
+    arc_lengths = np.insert(np.cumsum(dists), 0, 0)
+    total_length = arc_lengths[-1]
+    arc_lengths /= total_length
+
+    u_interp = interp1d(arc_lengths, u_dense)
+    u_equal = u_interp(np.linspace(0, 1, n_points))
+
+    x_eq, y_eq = splev(u_equal, tck)
+    return np.stack((x_eq, y_eq), axis=1), u_equal, total_length
+
 def compute_curvature(tck, u_eval):
     """
     Compute curvature κ over the spline defined by tck and u_eval.
@@ -159,6 +174,39 @@ def compute_curvature(tck, u_eval):
     arc_length /= arc_length[-1]
 
     return arc_length, kappa
+
+def compute_normals(tck, u_eval, polygon_for_orientation_check=None):
+    """
+    Compute outward-pointing normal vectors along the spline.
+    
+    Args:
+        tck: The spline representation.
+        u_eval: Parameter values at which to evaluate the spline.
+        polygon_for_orientation_check: Optional (n,2) array of polygon points for winding check.
+
+    Returns:
+        normals: Array of shape (n_points, 2) with outward-pointing unit normal vectors.
+    """
+    dx, dy = splev(u_eval, tck, der=1)
+    tangents = np.stack((dx, dy), axis=1)
+    
+    # Rotate tangent vector 90 degrees counter-clockwise to get normal
+    normals = np.stack((-dy, dx), axis=1)
+
+    # Normalize
+    norms = np.linalg.norm(normals, axis=1, keepdims=True)
+    normals /= np.maximum(norms, 1e-8)
+
+    # Determine winding: positive area -> CCW, negative -> CW
+    if polygon_for_orientation_check is not None:
+        area = np.sum(
+            polygon_for_orientation_check[:, 0] * np.roll(polygon_for_orientation_check[:, 1], -1)
+            - polygon_for_orientation_check[:, 1] * np.roll(polygon_for_orientation_check[:, 0], -1)
+        ) * 0.5
+        if area < 0:
+            normals *= -1  # flip normals if polygon is CW
+
+    return normals
 
 def get_curve(mesh, ax_geom=None, ax_curv=None):
     path, to3D, height = get_path(mesh)
@@ -183,25 +231,47 @@ def get_curve(mesh, ax_geom=None, ax_curv=None):
 
     # Fit spline
     tck = fit_spline_arclength_weighted(resampled, s=50.0, per=1)
-    u_eval = np.linspace(0, 1, 1000)
-    x_smooth, y_smooth = splev(u_eval, tck)
+    resampled_spline, u_equal, total_length = resample_spline_by_arclength(tck, n_points=1000)
+    x_smooth, y_smooth = resampled_spline[:, 0], resampled_spline[:, 1]
+    normals = compute_normals(tck, u_equal, resampled)
+
+    # Verify total length and segment length agree
+    # print(total_length)
+    # coords = np.stack((x_smooth, y_smooth), axis=1)
+    # segment_lengths = np.linalg.norm(np.diff(coords, axis=0), axis=1)
+
+    # plt.figure()
+    # plt.plot(segment_lengths, '.-')
+    # plt.title("Distance Between Consecutive Points")
+    # plt.xlabel("Segment Index")
+    # plt.ylabel("Length")
+    # plt.grid(True)
+    # plt.show()
+
     arrow_dx = x_smooth[1] - x_smooth[0]
     arrow_dy = y_smooth[1] - y_smooth[0]
 
     if ax_geom is not None:
         ax_geom.scatter(resampled[:, 0], resampled[:, 1], alpha=0.3)
-        ax_geom.plot(x_smooth, y_smooth, 'r')
+        ax_geom.plot(x_smooth, y_smooth, 'r.')
         ax_geom.plot(x_smooth[0], y_smooth[0], 'o', color='green', markersize=8, label='Start')
         ax_geom.arrow(x_smooth[0], y_smooth[0], 50*arrow_dx, 50*arrow_dy,
                     head_width=2.0, head_length=3.0, fc='green', ec='green', length_includes_head=True)
         # Draw original polylines
         for pline in polylines:
             ax_geom.plot(pline[:, 0], pline[:, 1], 'k--', alpha=0.3)
+        
+        skip = 25  # spacing for arrows
+        ax_geom.quiver(
+            x_smooth[::skip], y_smooth[::skip],
+            normals[::skip, 0], normals[::skip, 1],
+            angles='xy', scale_units='xy', scale=10, color='blue', width=0.05
+        )
 
         ax_geom.set_aspect('equal')
         ax_geom.set_title("Smoothed Contour")
 
-    arc_length, kappa = compute_curvature(tck, u_eval)
+    arc_length, kappa = compute_curvature(tck, u_equal)
 
     if ax_curv is not None:
         # Curvature plot
@@ -211,24 +281,38 @@ def get_curve(mesh, ax_geom=None, ax_curv=None):
         ax_curv.set_title("Curvature vs Arc Length")
         ax_curv.grid(True)
     
-    return x_smooth, y_smooth, kappa, height
+    return x_smooth, y_smooth, kappa, height, total_length, normals
 
-x_key, y_key, k_key, z_key = get_curve(mesh_key)
+x_key, y_key, k_key, z_key, l_key, n_key = get_curve(mesh_key)
 CONTOUR_ALLEN_KEY = {
     'xyz': np.column_stack((x_key, y_key, [z_key]*len(x_key))),
+    'normals': np.column_stack((n_key, np.zeros(len(n_key)))),  # pad Z = 0
     'kappa': k_key,
+    'length': l_key
 }
-x_wrench, y_wrench, k_wrench, z_wrench = get_curve(mesh_wrench)
+
+x_wrench, y_wrench, k_wrench, z_wrench, l_wrench, n_wrench = get_curve(mesh_wrench)
 CONTOUR_WRENCH = {
     'xyz': np.column_stack((x_wrench, y_wrench, [z_wrench]*len(x_wrench))),
+    'normals': np.column_stack((n_wrench, np.zeros(len(n_wrench)))),
     'kappa': k_wrench,
+    'length': l_wrench
+}
+
+x_jenga, y_jenga, k_jenga, z_jenga, l_jenga, n_jenga = get_curve(mesh_jenga)
+CONTOUR_JENGA = {
+    'xyz': np.column_stack((x_jenga, y_jenga, [z_jenga]*len(x_jenga))),
+    'normals': np.column_stack((n_jenga, np.zeros(len(n_jenga)))),
+    'kappa': k_jenga,
+    'length': l_jenga
 }
 
 if __name__ == "__main__":
     # If running this script directly, show plots
-    fig, axs = plt.subplots(2, 2, figsize=(12, 8))
+    fig, axs = plt.subplots(3, 2, figsize=(12, 8))
     get_curve(mesh_key, axs[0, 1], axs[0, 0])
     get_curve(mesh_wrench, axs[1, 1], axs[1, 0])
+    get_curve(mesh_jenga, axs[2, 1], axs[2, 0])
 
     plt.tight_layout()
     plt.show()
