@@ -203,7 +203,7 @@ def compute_normals(tck, u_eval, polygon_for_orientation_check=None):
             polygon_for_orientation_check[:, 0] * np.roll(polygon_for_orientation_check[:, 1], -1)
             - polygon_for_orientation_check[:, 1] * np.roll(polygon_for_orientation_check[:, 0], -1)
         ) * 0.5
-        if area < 0:
+        if area > 0:
             normals *= -1  # flip normals if polygon is CW
 
     return normals
@@ -265,7 +265,7 @@ def get_curve(mesh, ax_geom=None, ax_curv=None):
         ax_geom.quiver(
             x_smooth[::skip], y_smooth[::skip],
             normals[::skip, 0], normals[::skip, 1],
-            angles='xy', scale_units='xy', scale=10, color='blue', width=0.05
+            angles='xy', scale_units='xy', color='blue'#, width=0.1, scale=1
         )
 
         ax_geom.set_aspect('equal')
