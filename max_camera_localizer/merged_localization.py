@@ -258,18 +258,27 @@ def main():
                     prediction = predict_pusher_outputs(name, posex, posey, oriy)
                     index = prediction['predicted_index']
 
-                    # Draw predicted points
+                    # Draw predicted points (of the one or two given)
+                    recommended = []
                     for ind in index:
                         label = f"pusher recommended @ contour {ind}"
                         pusher_point_world = obj['contour']['xyz'][ind]
                         pusher_point_img = transform_points_world_to_img([pusher_point_world], cam_pos, cam_quat, CAMERA_MATRIX)
+                        pusher_point_normal = obj['contour']['normals'][ind]
 
                         (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
                         cv2.rectangle(frame, (pusher_point_img[0][0] - 20, pusher_point_img[0][1] - h - 20 - 5), (pusher_point_img[0][0] + w - 20, pusher_point_img[0][1] - 20 + 5), (0, 0, 0), -1)
                         cv2.putText(frame, label, (pusher_point_img[0][0] - 20, pusher_point_img[0][1] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
                         cv2.circle(frame, pusher_point_img[0], 5, color)
-                
+
+                        recommended.append([pusher_point_world, pusher_point_normal])
+                    if len(recommended) == 1:
+                        # duplicate single pusher
+                        recommended.append(recommended[0])
+                    
+                    bridge_node.publish_recommended_contacts(recommended)
+
                 # draw target
                 target_contour = hard_define_contour(TARGET_POSES[name][0], TARGET_POSES[name][1], name)
                 # Draw low-res Contour

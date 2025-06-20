@@ -5,6 +5,7 @@ from matplotlib.path import Path
 import os
 from scipy.interpolate import splprep, splev, interp1d
 from ament_index_python.packages import get_package_share_directory
+import csv
 
 def trirotmat(angledeg, direction, point):
     return trimesh.transformations.rotation_matrix(angle=np.radians(angledeg), direction=direction, point=point)
@@ -307,6 +308,25 @@ CONTOUR_JENGA = {
     'length': l_jenga
 }
 
+def export_contour_wrench_to_csv(contour_wrench, filename):
+    xyz = contour_wrench['xyz']       # shape: (N, 3)
+    normals = contour_wrench['normals']  # shape: (N, 2)
+    kappa = contour_wrench['kappa']   # shape: (N,)
+
+    # Check that all arrays have the same length
+    N = len(kappa)
+    assert all(len(arr) == N for arr in [xyz, normals, kappa]), "Mismatched array lengths"
+
+    with open(filename, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        # Write header
+        writer.writerow(['x', 'y', 'z', 'nx', 'ny', 'nz', 'kappa'])
+
+        # Write data rows
+        for i in range(N):
+            row = list(xyz[i]) + list(normals[i]) + [kappa[i]]
+            writer.writerow(row)
+
 if __name__ == "__main__":
     # If running this script directly, show plots
     fig, axs = plt.subplots(3, 2, figsize=(12, 8))
@@ -316,3 +336,4 @@ if __name__ == "__main__":
 
     plt.tight_layout()
     plt.show()
+    export_contour_wrench_to_csv(CONTOUR_WRENCH, "wrench_contour.csv")

@@ -46,6 +46,7 @@ def define_body_frame_allen_key(p1, p2, p3, width=0.005):
     # Apply transform to contour (must convert to meters as well)
     contour = CONTOUR_ALLEN_KEY.copy()
     contour['xyz'] = (0.001 * rot_matrix @ contour['xyz'].T).T + origin
+    contour['normals'] = (rot_matrix @ contour['normals'].T).T
     return origin, quat, contact_points, contour
 
 def define_body_frame_wrench(p1, p2, p3, widths=[0.005, 0.005, 0.012, 0.012]):
@@ -93,12 +94,14 @@ def define_body_frame_wrench(p1, p2, p3, widths=[0.005, 0.005, 0.012, 0.012]):
     # Apply transform to contour (must convert to meters as well)
     contour = CONTOUR_WRENCH.copy()
     contour['xyz'] = (0.001 * rot_matrix @ contour['xyz'].T).T + origin
+    contour['normals'] = (rot_matrix @ contour['normals'].T).T
     return origin, quat, contact_points, contour
 
 def define_jenga_contour(world_pos, world_rot):
     rot_matrix = R.from_quat(world_rot).as_matrix()
     contour = CONTOUR_JENGA.copy()
     contour['xyz'] = (0.001 * rot_matrix @ contour['xyz'].T).T + world_pos
+    contour['normals'] = (rot_matrix @ contour['normals'].T).T
     return contour
 
 def hard_define_contour(position, orientation, name):
@@ -109,12 +112,15 @@ def hard_define_contour(position, orientation, name):
     if name == "allen_key":
         contour = CONTOUR_ALLEN_KEY.copy()
         contour['xyz'] = (0.001 * rot_matrix @ contour['xyz'].T).T + position
+        contour['normals'] = (rot_matrix @ contour['normals'].T).T
     elif name == "wrench":
         contour = CONTOUR_WRENCH.copy()
         contour['xyz'] = (0.001 * rot_matrix @ contour['xyz'].T).T + position
+        contour['normals'] = (rot_matrix @ contour['normals'].T).T
     elif name == "jenga":
         contour = CONTOUR_JENGA.copy()
         contour['xyz'] = (0.001 * rot_matrix @ contour['xyz'].T).T + position
+        contour['normals'] = (rot_matrix @ contour['normals'].T).T
     else:
         return None
     return contour
