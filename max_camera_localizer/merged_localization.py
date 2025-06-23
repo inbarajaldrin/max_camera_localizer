@@ -30,15 +30,15 @@ CAMERA_MATRIX = np.array([[fx, 0, c_width / 2],
                           [0, 0, 1]], dtype=np.float32)
 DIST_COEFFS = np.zeros((5, 1), dtype=np.float32) # datasheet says <= 1.5%
 MARKER_SIZE = 0.019  # meters
-BLOCK_LENGTH = 0.072
-BLOCK_WIDTH = 0.024
-BLOCK_THICKNESS = 0.014
+BLOCK_LENGTH = 0.072 # meters
+BLOCK_WIDTH = 0.024 # meters
+BLOCK_THICKNESS = 0.014 # meters
 ARUCO_DICTS = {
     "DICT_4X4_250": aruco.DICT_4X4_250,
     "DICT_5X5_250": aruco.DICT_5X5_250
 }
-OBJECT_DICTS = {
-    "allen_key": [37, 102, 126],
+OBJECT_DICTS = { # mm
+    "allen_key": [38.8, 102.6, 129.5],
     "wrench": [37, 70, 70]
 }
 TARGET_POSES = {
@@ -48,6 +48,11 @@ TARGET_POSES = {
     "allen_key": ([40, -600, 10], [0, 0, 0]),
 }
 
+blue_range = [np.array([100, 80, 80]), np.array([140, 255, 255])]
+green_range = [np.array([35, 80, 100]), np.array([75, 255, 255])]
+yellow_range = [np.array([15, 80, 60]), np.array([35, 255, 255])]
+
+pusher_distance_max = 0.030
 
 trackers = {}
 
@@ -162,13 +167,10 @@ def main():
         objects = identified_jenga + detected_objects
 
         # Blue Blob Section
-        blue_range = [np.array([100, 80, 80]), np.array([140, 255, 255])]
         world_points, _ = detect_color_blobs(frame, blue_range, (255,0,0), CAMERA_MATRIX, cam_pos, cam_quat)
         identified_objects = identify_objects_from_blobs(world_points, OBJECT_DICTS)
 
         # Pusher section
-        green_range = [np.array([35, 80, 100]), np.array([75, 255, 255])]
-        yellow_range = [np.array([15, 80, 60]), np.array([35, 255, 255])]
         pushers = {"green": None, "yellow": None}
         nearest_pushers = []
         if not args.no_pushers:
@@ -208,7 +210,7 @@ def main():
                     if pusher is not None:
                         pusher_pos, col = pusher
                         distance, contour_idx = tree.query(pusher_pos)
-                        if distance > 0.030: # Must be within 30mm (accounts for differences in z)
+                        if distance > pusher_distance_max: # Must be within 30mm (accounts for differences in z)
                             continue
                         nearest_point = all_xyz[contour_idx]
                         kappa_value = all_kappa[contour_idx]
@@ -268,7 +270,7 @@ def main():
 
                         (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
                         cv2.rectangle(frame, (pusher_point_img[0][0] - 20, pusher_point_img[0][1] - h - 20 - 5), (pusher_point_img[0][0] + w - 20, pusher_point_img[0][1] - 20 + 5), (0, 0, 0), -1)
-                        cv2.putText(frame, label, (pusher_point_img[0][0] - 20, pusher_point_img[0][1] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+                        cv2.putText(frame, label, (pusher_point_img[0][0] - 20, pusher_point_img[0][1] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
                         cv2.circle(frame, pusher_point_img[0], 5, color)
 

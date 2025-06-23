@@ -1,4 +1,5 @@
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.neural_network import MLPClassifier, MLPRegressor
 import numpy as np
 import pandas as pd
 import os
@@ -7,9 +8,9 @@ import os
 # Load the uploaded CSV file
 file_folder = "/media/max/OS/Users/maxlg/Desktop/==RISELABS/Pusher Data Batch 2/"
 data_files = {
-    "jenga": "jenga_all/csv_output/jenga_all.csv",
-    "allen_key": "allen_key_all/csv_output/allen_key_all.csv",
-    "wrench": "wrench_all/csv_output/wrench_all.csv",
+    "jenga": "jenga/csv_output/merged_pushers_with_pose.csv",
+    "allen_key": "allen_key/csv_output/merged_pushers_with_pose.csv",
+    "wrench": "wrench/csv_output/merged_pushers_with_pose.csv",
 }
 
 # Input feature columns
@@ -29,17 +30,20 @@ for object_name, file_name in data_files.items():
     X = df[input_cols]
     y_class = df['pusher_class']
     clf = RandomForestClassifier(random_state=42)
+    # clf = MLPClassifier(random_state=42)
     clf.fit(X, y_class)
 
     # One-pusher regressor
     one_pusher = df[df['pusher_class'] == 0].copy()
     one_pusher['index_value'] = one_pusher['green_index'].combine_first(one_pusher['yellow_index'])
     reg_one = RandomForestRegressor(random_state=42)
+    # reg_one = MLPRegressor(random_state=42)
     reg_one.fit(one_pusher[input_cols], one_pusher['index_value'])
 
     # Two-pusher regressor
     two_pushers = df[df['pusher_class'] == 1]
     reg_two = RandomForestRegressor(random_state=42)
+    # reg_two = MLPRegressor(random_state=42)
     reg_two.fit(two_pushers[input_cols], two_pushers[['green_index', 'yellow_index']])
 
     # Store models for object

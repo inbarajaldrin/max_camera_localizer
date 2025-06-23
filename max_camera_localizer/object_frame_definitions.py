@@ -125,6 +125,7 @@ def hard_define_contour(position, orientation, name):
         return None
     return contour
 
+# Defunct
 def define_jenga_contacts(world_pos, world_rot, width, length, thick):
     "Contact points as (idx, pos, normvec)"
     # Origin is block center, on top

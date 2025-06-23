@@ -183,7 +183,7 @@ def detect_object(p1, p2, p3, name, inferred):
     }
     return obj
 
-def identify_objects_from_blobs(world_points, object_dicts, tolerance=5.0):
+def identify_objects_from_blobs(world_points, object_dicts, tolerance=10.0):
     identified_objects = []
 
     for tri_pts in combinations(world_points, 3):
@@ -203,7 +203,7 @@ def identify_objects_from_blobs(world_points, object_dicts, tolerance=5.0):
 
     return identified_objects
 
-def attempt_recovery_for_missing_objects(last_objects, current_points, known_triangles, merge_threshold=0.02):
+def attempt_recovery_for_missing_objects(last_objects, current_points, known_triangles, merge_threshold=0.03):
     recovered = []
 
     for prev in last_objects:

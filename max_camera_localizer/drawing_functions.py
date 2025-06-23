@@ -20,7 +20,7 @@ def draw_text(frame, cam_pos, cam_quat, object_data, frame_idx, ee_pos, ee_quat)
 
     def put_line(text, color=(255, 255, 255)):
         nonlocal y
-        cv2.putText(frame, text, (x0, y), font, 0.6, color, 1)
+        cv2.putText(frame, text, (x0, y), font, 0.6, color, 2)
         y += line_height
 
     # Frame Index
@@ -129,7 +129,7 @@ def draw_object_lines(frame, camera_matrix, cam_pos, cam_quat, identified_object
 
         (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
         cv2.rectangle(frame, (pusher_point_img[0][0] - 20, pusher_point_img[0][1] - h - 20 - 5), (pusher_point_img[0][0] + w - 20, pusher_point_img[0][1] - 20 + 5), (0, 0, 0), -1)
-        cv2.putText(frame, label, (pusher_point_img[0][0] - 20, pusher_point_img[0][1] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, nearest_pusher["color"], 1)
+        cv2.putText(frame, label, (pusher_point_img[0][0] - 20, pusher_point_img[0][1] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, nearest_pusher["color"], 2)
 
         contour_point_world = nearest_pusher['nearest_point']
         contour_point_img = transform_points_world_to_img([contour_point_world], cam_pos, cam_quat, camera_matrix)
