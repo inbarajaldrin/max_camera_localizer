@@ -5,7 +5,7 @@ This is a ROS 2 Humble Package that outputs aruco tag position and orientation *
 # Setup
 Usage of this package will require the UR ROS 2 driver and cv2. 
 
-To install, place this repository in the src directory of your workspace. Also install the repository `max_camera_msgs` in the same location. Then, build your workspace. 
+To install, place this repository in the src directory of your workspace. Also install the repository `max_camera_msgs` in the same location. The repository is [here](https://github.com/MaxlGao/max_camera_msgs). Then, build your workspace. 
 
 To run, first make sure a UR driver is running. Then, run `ros2 run max_camera_localizer localize` inside your workspace. 
 
