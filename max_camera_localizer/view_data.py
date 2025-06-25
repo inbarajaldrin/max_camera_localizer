@@ -2,7 +2,7 @@ import csv
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
-input_file = "/media/max/OS/Users/maxlg/Desktop/==RISELABS/Pusher Data Batch 2/jenga/csv_output/merged_pushers_with_pose.csv"
+input_file = "/media/max/OS/Users/maxlg/Desktop/==RISELABS/Pusher Data Batch 3/jenga/csv_output/merged_pushers_with_pose.csv"
 
 pose_x, pose_y, ori_y = [], [], []
 single_x, single_y, single_z = [], [], []

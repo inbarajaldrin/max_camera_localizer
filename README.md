@@ -67,13 +67,11 @@ YOUR_ROS2_WORKSPACE/
 
 ## Important Parameters
 
-Most of these scripts have parameters at the top of the file. 
+Most of these scripts have parameters at the top of the file. Often, you will find references to `jenga`, `allen_key`, and `wrench` close to each other. These are the three objects of interest that we work with; you will need to add another reference to add another object.
 
 ### `data_analyze.py`
 
-This script contains a variable `bag_dir` which references a rosbag directory and expects there to be a `*.db3` file and `metadata.yaml` inside a given folder. This directory *must* be changed before running this file. 
-
-Below this variable is `pose_topic` which references a specific object to analyze. Currently, this script analyzes one object's pose at a time. 
+This script contains a variable `parent_folder` which references a rosbag directory and expects there to be a `*.db3` file and `metadata.yaml` inside a given folder. This directory *must* be changed before running this file on a new system. 
 
 ### `data_predict.py`
 

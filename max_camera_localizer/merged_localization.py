@@ -257,7 +257,7 @@ def main():
                     objquat = obj["quaternion"]
                     objeuler = R.from_quat(objquat).as_euler('xyz')
                     oriy = objeuler[2]
-                    prediction = predict_pusher_outputs(name, posex, posey, oriy)
+                    prediction = predict_pusher_outputs(name, posex, posey, oriy, TARGET_POSES[name])
                     index = prediction['predicted_index']
 
                     # Draw predicted points (of the one or two given)
