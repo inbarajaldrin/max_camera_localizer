@@ -1,4 +1,4 @@
-# Aruco-Based Localization for Camera mounted on UR End-Effector
+# Object Localization for Camera mounted on UR End-Effector
 
 This is a ROS 2 Humble Package that outputs aruco tag position and orientation *in the robot base frame* using camera inputs and ROS 2 communication with the UR driver. 
 
