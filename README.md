@@ -55,10 +55,8 @@ YOUR_ROS2_WORKSPACE/
 │       ├── STL/
 │       │   ├── Allen Key.STL
 │       │   └── Wrench.STL
-│       ├── Pusher Data/
-│       │   ├── allen_key.csv
-│       │   ├── wrench.csv
-│       │   └── jenga.csv
+│       ├── pusher_data/
+│       │   ├── {see the section on `data_predict.py` below}
 │       ├── package.xml
 │       ├── README.md
 │       ├── setup.cfg
@@ -75,12 +73,12 @@ This script contains a variable `parent_folder` which references a rosbag direct
 
 ### `data_predict.py`
 
-This script contains `file_folder` and `data_files`. As of now, `file_folder` *must* be changed before running *any* script needing pusher recommendations. (This will change in the future)
+This script contains `file_folder` and `data_files`. Both reference data files that appear in the package's share directory, which are copied from pusher_data in the `src/max_camera_localizer` folder. If swapping out this data for another set, please rebuild the package.
 
 The script assumes the data files are structured as follows:
 
 ```
-{file_folder}/
+pusher_data/
 ├── jenga/
 │   ├── csv_output/
 │   │   ├── _object_poses_jenga_[NUMBER].csv

@@ -66,21 +66,28 @@ def clean_contour_data(rows, jump_threshold=JUMP_THRESHOLD, window_size=WINDOW_S
     # This is agnostic to frame number. ANY four or fewer contigual unusual numbers are deleted.
     
     def get_index(row, color):
+        # Gives the index number from a given row, for a corresponding color (yellow or green)
         ind = row.get(color, None)
         if ind is not None:
             ind = int(ind)
         return ind
 
     def is_different(ind1, ind2):
+        # Compares current and subsequent index numbers... (assuming for one single color)
         if ind1 is None and ind2 is not None:
+            # If an index number suddenly appears, that's a change
             return True
         elif ind2 is None and ind1 is not None:
+            # If an index number suddenly disappears, that's a change
             return True
         elif ind1 is None and ind2 is None:
+            # If an index number stays absent, no change.
             return False
         elif abs(ind1 - ind2) > jump_threshold:
+            # If an index number stays present, but changes, that's a change.
             return True
         else:
+            # The only other case is the index number not changing a lot.
             return False
     
     # Process green and yellow separately.
@@ -118,6 +125,7 @@ def clean_contour_data(rows, jump_threshold=JUMP_THRESHOLD, window_size=WINDOW_S
     return rows
 
 def group_and_trim(rows, threshold=JUMP_THRESHOLD):
+    # If ALL present indices jump by a threshold, define as a new push. 
     original_length = len(rows)
     grouped = []
     group = [rows[0]]
@@ -146,7 +154,7 @@ def group_and_trim(rows, threshold=JUMP_THRESHOLD):
     for g in grouped:
         cutoff = max(1, int(len(g) * KEPT_PROPORTION))
         trimmed.extend(g[:cutoff])
-    print(f"Trimmed down from {original_length} to {len(trimmed)}")
+    print(f"Trimmed groups; reduced rows from {original_length} to {len(trimmed)}")
     return trimmed
 
 def remove_bad_pushes(rows):
@@ -364,14 +372,19 @@ for object_name, pose_topic in zip(object_names, pose_topics):
             angle = float(row["ori_y"])
             if -np.pi <= angle <= np.pi:
                 new_row = copy.deepcopy(row)
+                # print(f"Original Row {new_row}")
                 if "green_index" in new_row: # 180 degree rotation = add/subtract 500 from contour
                     new_row["green_index"] = str((int(new_row["green_index"]) + 500) % 1000) 
                 if "yellow_index" in new_row:
                     new_row["yellow_index"] = str((int(new_row["yellow_index"]) + 500) % 1000) 
                 new_row["ori_y"] = str(angle + np.pi)
                 duplicated.append(new_row)
-                new_row["ori_y"] = str(angle - np.pi)
-                duplicated.append(new_row)
+                # print(f"First Row {new_row}")
+                newnew_row = copy.deepcopy(new_row)
+                newnew_row["ori_y"] = str(angle - np.pi)
+                # print(f"Second Row {newnew_row}")
+                duplicated.append(newnew_row)
+                # exit()
         rows.extend(duplicated)
         print(f"There are now {len(rows)} rows in the jenga table")
 
