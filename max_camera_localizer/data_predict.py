@@ -2,13 +2,9 @@ from sklearn.ensemble import RandomForestClassifier
 import numpy as np
 import pandas as pd
 import os
-from ament_index_python.packages import get_package_share_directory
-
-file_folder = get_package_share_directory("max_camera_localizer")
-file_folder = os.path.join(file_folder, "pusher_data")
 
 # Load the uploaded CSV file
-# file_folder = "/media/max/OS/Users/maxlg/Desktop/==RISELABS/Pusher Data Batch 3/"
+file_folder = "/media/max/OS/Users/maxlg/Desktop/==RISELABS/Pusher Data Batch 3/"
 data_files = {
     "jenga": "jenga/csv_output/merged_pushers_with_pose.csv",
     "allen_key": "allen_key/csv_output/merged_pushers_with_pose.csv",

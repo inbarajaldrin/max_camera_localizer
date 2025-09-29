@@ -1,4 +1,4 @@
-# Object Localization for Camera mounted on UR End-Effector
+# Aruco-Based Localization for Camera mounted on UR End-Effector
 
 This is a ROS 2 Humble Package that outputs aruco tag position and orientation *in the robot base frame* using camera inputs and ROS 2 communication with the UR driver. 
 
@@ -55,8 +55,10 @@ YOUR_ROS2_WORKSPACE/
 │       ├── STL/
 │       │   ├── Allen Key.STL
 │       │   └── Wrench.STL
-│       ├── pusher_data/
-│       │   ├── {see the section on `data_predict.py` below}
+│       ├── Pusher Data/
+│       │   ├── allen_key.csv
+│       │   ├── wrench.csv
+│       │   └── jenga.csv
 │       ├── package.xml
 │       ├── README.md
 │       ├── setup.cfg
@@ -73,12 +75,12 @@ This script contains a variable `parent_folder` which references a rosbag direct
 
 ### `data_predict.py`
 
-This script contains `file_folder` and `data_files`. Both reference data files that appear in the package's share directory, which are copied from pusher_data in the `src/max_camera_localizer` folder. If swapping out this data for another set, please rebuild the package.
+This script contains `file_folder` and `data_files`. As of now, `file_folder` *must* be changed before running *any* script needing pusher recommendations. (This will change in the future)
 
 The script assumes the data files are structured as follows:
 
 ```
-pusher_data/
+{file_folder}/
 ├── jenga/
 │   ├── csv_output/
 │   │   ├── _object_poses_jenga_[NUMBER].csv
