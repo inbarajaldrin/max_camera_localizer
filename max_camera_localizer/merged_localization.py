@@ -10,7 +10,7 @@ transform_points_world_to_img, transform_point_world_to_cam
 from max_camera_localizer.detection_functions import detect_markers, detect_color_blobs, estimate_pose, \
     identify_objects_from_blobs, attempt_recovery_for_missing_objects
 from max_camera_localizer.object_frame_definitions import define_jenga_contacts, define_jenga_contour, hard_define_contour
-from max_camera_localizer.drawing_functions import draw_text, draw_object_lines
+from max_camera_localizer.drawing_functions import draw_text, draw_object_lines, draw_color_dot_poses
 import threading
 import rclpy
 import argparse
@@ -48,9 +48,27 @@ TARGET_POSES = {
     "allen_key": ([40, -600, 10], [0, 0, 0]),
 }
 
-blue_range = [np.array([100, 80, 80]), np.array([140, 255, 255])]
-green_range = [np.array([35, 80, 100]), np.array([75, 255, 255])]
-yellow_range = [np.array([15, 80, 60]), np.array([35, 255, 255])]
+# Dynamic Color Range Configuration
+# Add or remove color ranges here - the rest of the code will automatically adjust
+COLOR_RANGES = {
+    "blue": [np.array([100, 80, 80]), np.array([140, 255, 255])],
+    "red": [np.array([170, 80, 80]), np.array([180, 255, 255])],
+    "green": [np.array([35, 80, 100]), np.array([75, 255, 255])],
+    "yellow": [np.array([15, 80, 60]), np.array([35, 255, 255])],
+    # Add more colors here as needed:
+    # "purple": [np.array([130, 80, 80]), np.array([160, 255, 255])],
+    # "orange": [np.array([10, 80, 80]), np.array([25, 255, 255])],
+    # "pink": [np.array([160, 80, 80]), np.array([180, 255, 255])],
+}
+
+# Color visualization settings (BGR format for OpenCV)
+COLOR_VISUALIZATION = {
+    "blue": (255, 0, 0),      # Blue in BGR
+    "red": (0, 0, 255),       # Red in BGR  
+    "green": (0, 255, 0),     # Green in BGR
+    "yellow": (0, 255, 255),  # Yellow in BGR
+    # Add corresponding visualization colors for new ranges
+}
 
 pusher_distance_max = 0.030
 
@@ -170,26 +188,49 @@ def main():
 
         objects = identified_jenga + detected_objects
 
-        # Blue Blob Section
-        world_points, _ = detect_color_blobs(frame, blue_range, (255,0,0), CAMERA_MATRIX, cam_pos, cam_quat)
-        identified_objects = identify_objects_from_blobs(world_points, OBJECT_DICTS)
+        # Dynamic Color Detection Section
+        detected_color_points = {}
+        all_target_points = []
+        
+        # Detect all configured colors dynamically
+        for color_name, color_range in COLOR_RANGES.items():
+            if color_name in ["green", "yellow"]:
+                # Skip pusher colors for target detection
+                continue
+                
+            color_bgr = COLOR_VISUALIZATION.get(color_name, (255, 255, 255))
+            world_points, _ = detect_color_blobs(frame, color_range, color_bgr, CAMERA_MATRIX, cam_pos, cam_quat)
+            detected_color_points[color_name] = world_points
+            all_target_points.extend(world_points)
+        
+        # Object identification (only for blue points for now)
+        if "blue" in detected_color_points:
+            identified_objects = identify_objects_from_blobs(detected_color_points["blue"], OBJECT_DICTS)
+        else:
+            identified_objects = []
+        
+        # Publish all target poses dynamically
+        bridge_node.publish_target_poses(detected_color_points)
 
-        # Pusher section
-        pushers = {"green": None, "yellow": None}
+        # Pusher section (dynamic)
+        pushers = {}
         nearest_pushers = []
         if not args.no_pushers:
-            world_points_green, _ = detect_color_blobs(frame, green_range, (0, 255, 0), CAMERA_MATRIX, cam_pos, cam_quat, min_area=150, merge_threshold=0)
-            world_points_yellow, _ = detect_color_blobs(frame, yellow_range, (0, 255, 255), CAMERA_MATRIX, cam_pos, cam_quat, min_area=150, merge_threshold=0)
+            # Detect pusher colors dynamically
+            for color_name in ["green", "yellow"]:
+                if color_name in COLOR_RANGES:
+                    color_range = COLOR_RANGES[color_name]
+                    color_bgr = COLOR_VISUALIZATION.get(color_name, (255, 255, 255))
+                    world_points, _ = detect_color_blobs(frame, color_range, color_bgr, CAMERA_MATRIX, cam_pos, cam_quat, min_area=150, merge_threshold=0)
+                    pushers[color_name] = world_points
 
-            if world_points_green:
-                best_green = pick_closest_blob(world_points_green, last_pushers["green"])
-                pushers["green"] = (best_green, (0, 255, 0))
-                last_pushers["green"] = best_green
-
-            if world_points_yellow:
-                best_yellow = pick_closest_blob(world_points_yellow, last_pushers["yellow"])
-                pushers["yellow"] = (best_yellow, (0, 255, 255))
-                last_pushers["yellow"] = best_yellow
+            # Process detected pusher points
+            for color_name, world_points in pushers.items():
+                if world_points:
+                    color_bgr = COLOR_VISUALIZATION.get(color_name, (255, 255, 255))
+                    best_point = pick_closest_blob(world_points, last_pushers.get(color_name))
+                    pushers[color_name] = (best_point, color_bgr)
+                    last_pushers[color_name] = best_point
             
 
             # Working block for pusher-object interaction detection
@@ -242,7 +283,8 @@ def main():
         
         # Attempt recovery if any objects are missing
         if missing: 
-            recovered_objects = attempt_recovery_for_missing_objects(detected_objects, world_points, known_triangles=OBJECT_DICTS)
+            blue_points = detected_color_points.get("blue", [])
+            recovered_objects = attempt_recovery_for_missing_objects(detected_objects, blue_points, known_triangles=OBJECT_DICTS)
         else:
             recovered_objects = None
 
@@ -306,6 +348,7 @@ def main():
         bridge_node.publish_contacts(nearest_pushers)
         draw_text(frame, cam_pos, cam_quat, identified_objects+identified_jenga, frame_idx, ee_pos, ee_quat)
         draw_object_lines(frame, CAMERA_MATRIX, cam_pos, cam_quat, identified_objects+identified_jenga, nearest_pushers)
+        draw_color_dot_poses(frame, CAMERA_MATRIX, cam_pos, cam_quat, detected_color_points, COLOR_VISUALIZATION)
 
         cv2.imshow("Merged Detection", frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):

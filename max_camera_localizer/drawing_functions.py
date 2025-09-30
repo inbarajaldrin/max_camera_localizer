@@ -137,3 +137,59 @@ def draw_object_lines(frame, camera_matrix, cam_pos, cam_quat, identified_object
         cv2.arrowedLine(frame, pusher_point_img[0], contour_point_img[0], nearest_pusher["color"], 2, tipLength=0.3)
 
     return frame
+
+def draw_color_dot_poses(frame, camera_matrix, cam_pos, cam_quat, detected_color_points, color_visualization):
+    """Draw all detected color dot poses on the OpenCV frame"""
+    if not detected_color_points:
+        return frame
+    
+    # Draw dots for each detected color
+    for color_name, world_points in detected_color_points.items():
+        if not world_points:
+            continue
+            
+        # Get visualization color for this color
+        color_bgr = color_visualization.get(color_name, (255, 255, 255))
+        
+        # Transform world points to image coordinates
+        image_points = transform_points_world_to_img(world_points, cam_pos, cam_quat, camera_matrix)
+        
+        for i, (world_pt, img_pt) in enumerate(zip(world_points, image_points)):
+            if img_pt is None:
+                continue
+                
+            # Draw colored dot as a filled circle
+            cv2.circle(frame, img_pt, 8, color_bgr, -1)  # Colored filled circle
+            cv2.circle(frame, img_pt, 10, (255, 255, 255), 2)  # White outline
+            
+            # Draw label with background
+            label = f"{color_name.capitalize()}_{i}"
+            (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+            
+            # Background rectangle for text
+            cv2.rectangle(frame, 
+                         (img_pt[0] - w//2 - 5, img_pt[1] - h - 20 - 5), 
+                         (img_pt[0] + w//2 + 5, img_pt[1] - 20 + 5), 
+                         (0, 0, 0), -1)
+            
+            # Draw text
+            cv2.putText(frame, label, 
+                       (img_pt[0] - w//2, img_pt[1] - 20), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            
+            # Draw coordinates text
+            coord_text = f"({world_pt[0]*1000:.1f}, {world_pt[1]*1000:.1f})"
+            (cw, ch), _ = cv2.getTextSize(coord_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
+            
+            # Background for coordinates
+            cv2.rectangle(frame, 
+                         (img_pt[0] - cw//2 - 3, img_pt[1] + 5), 
+                         (img_pt[0] + cw//2 + 3, img_pt[1] + ch + 10), 
+                         (0, 0, 0), -1)
+            
+            # Draw coordinates
+            cv2.putText(frame, coord_text, 
+                       (img_pt[0] - cw//2, img_pt[1] + ch + 5), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)  # Yellow text
+    
+    return frame

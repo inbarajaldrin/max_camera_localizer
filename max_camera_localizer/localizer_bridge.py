@@ -33,6 +33,9 @@ class LocalizerBridge(Node):
         # Clean approach: Single topic with proper structured data
         self.object_poses_pub = self.create_publisher(ObjectPoseArray, '/objects_poses', 10)
         
+        # Blue dot targets publisher
+        self.targets_poses_pub = self.create_publisher(ObjectPoseArray, '/targets_poses', 10)
+        
         # Pusher publishers
         self.pusher_publishers = {}
         self.frame_num_publsher = self.create_publisher(Int32, '/camera_frame_number', 10)
@@ -100,6 +103,38 @@ class LocalizerBridge(Node):
         # Publish the structured message
         self.object_poses_pub.publish(msg)
 
+    def publish_target_poses(self, detected_color_points):
+        """Publish all detected color dot poses to /targets_poses topic"""
+        now = self.get_clock().now().to_msg()
+        
+        # Create ObjectPoseArray message for targets
+        msg = ObjectPoseArray()
+        msg.header.stamp = now
+        msg.header.frame_id = "base"
+        
+        # Add all detected color points as target poses
+        for color_name, world_points in detected_color_points.items():
+            for i, point in enumerate(world_points):
+                target_pose = ObjectPose()
+                target_pose.header.stamp = now
+                target_pose.header.frame_id = "base"
+                target_pose.object_name = f"{color_name}_dot_{i}"
+                
+                # Set position (dots are assumed to be on table, so z=0.01m)
+                target_pose.pose.position.x = float(point[0])
+                target_pose.pose.position.y = float(point[1])
+                target_pose.pose.position.z = 0.01  # Table height
+                
+                # Set orientation (identity quaternion for points)
+                target_pose.pose.orientation.x = 0.0
+                target_pose.pose.orientation.y = 0.0
+                target_pose.pose.orientation.z = 0.0
+                target_pose.pose.orientation.w = 1.0
+                
+                msg.objects.append(target_pose)
+        
+        # Publish the targets message
+        self.targets_poses_pub.publish(msg)
 
     def publish_contacts(self, pushers):
         """Publish pusher contact information"""
