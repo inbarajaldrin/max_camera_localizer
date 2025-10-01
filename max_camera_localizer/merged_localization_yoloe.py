@@ -76,13 +76,14 @@ TARGET_POSES = {
 }
 
 # YOLO detection settings - matches color names from original
-YOLO_PROMPTS = ["blue object", "red object", "green object", "yellow object", "hand"]
+YOLO_PROMPTS = ["blue object", "red object", "green object", "yellow object", "hand","ipad"]
 YOLO_COLOR_MAP = {
     "blue object": "blue",
     "red object": "red", 
     "green object": "green",
     "yellow object": "yellow",
-    "hand": "hand"
+    "hand": "hand",
+    "ipad": "box"
 }
 
 # Generic color for all YOLO detections (cyan in BGR)

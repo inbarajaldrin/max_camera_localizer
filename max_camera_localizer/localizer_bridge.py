@@ -15,6 +15,10 @@ class LocalizerBridge(Node):
         # Offset of camera from EE (in EE frame)
         self.cam_offset_position = np.array([-0.012, -0.048, -0.01]) # meters
         self.cam_offset_quat = np.array([0.0, 0.0, 0.0, 1.0]) # identity quaternion
+        
+        # Calibration offsets for camera position correction
+        self.calibration_offset_x = +0.004 # 5mm correction
+        self.calibration_offset_y = +0.002 # 0mm correction
         # --- Latest EE Pose (using values here if no ROS input - Home position) ---
         self.ee_position = np.array([-0.144, -0.435, 0.202])
         self.ee_quat = np.array([0.0, 1.0, 0.0, 0.0])
@@ -62,6 +66,11 @@ class LocalizerBridge(Node):
             r_ee = R.from_quat(self.ee_quat)
             r_cam_offset = R.from_quat(self.cam_offset_quat)
             cam_pos_world = self.ee_position + r_ee.apply(self.cam_offset_position)
+            
+            # Apply calibration offsets in the camera frame
+            calibration_offset = np.array([self.calibration_offset_x, self.calibration_offset_y, 0.0])
+            cam_pos_world += r_ee.apply(calibration_offset)
+            
             cam_quat_world = (r_ee * r_cam_offset).as_quat()
         return cam_pos_world, cam_quat_world
 
