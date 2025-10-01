@@ -5,11 +5,9 @@ from std_msgs.msg import Header, ColorRGBA, Int32, String
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 from max_camera_msgs.msg import PusherInfo, ObjectPose, ObjectPoseArray
-from max_camera_msgs.srv import UpdateYoloPrompts
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import threading
-import json
 
 class LocalizerBridge(Node):
     def __init__(self):
@@ -26,25 +24,6 @@ class LocalizerBridge(Node):
         self.ee_quat = np.array([0.0, 1.0, 0.0, 0.0])
         self.lock = threading.Lock()
         
-        # YOLO prompts and color mapping (dynamic)
-        self.yolo_prompts = ["blue object", "red object", "green object", "yellow object", "hand", "ipad"]
-        self.yolo_color_map = {
-            "blue object": "blue",
-            "red object": "red", 
-            "green object": "green",
-            "yellow object": "yellow",
-            "hand": "hand",
-            "ipad": "box"
-        }
-        self.yolo_prompts_lock = threading.Lock()
-        
-        # ROS2 parameters for YOLO prompts
-        self.declare_parameter('yolo_prompts', json.dumps(self.yolo_prompts))
-        self.declare_parameter('yolo_color_map', json.dumps(self.yolo_color_map))
-        
-        # Load parameters
-        self._load_yolo_parameters()
-        
         self.subscription = self.create_subscription(
             PoseStamped,
             '/tcp_pose_broadcaster/pose',
@@ -56,9 +35,6 @@ class LocalizerBridge(Node):
         self.cam_pose_pub = self.create_publisher(PoseStamped, '/camera_pose', 10)
         self.image_publisher = self.create_publisher(Image, 'intel_camera_rgb_raw', 10)
         self.bridge = CvBridge()
-        
-        # YOLO prompts publisher for external monitoring
-        self.yolo_prompts_pub = self.create_publisher(String, '/yolo_prompts', 10)
         
         # Clean approach: Single topic with proper structured data
         self.object_poses_pub = self.create_publisher(ObjectPoseArray, '/objects_poses', 10)
@@ -74,102 +50,6 @@ class LocalizerBridge(Node):
                                      "pusher_1_normal": self.create_publisher(Vector3Stamped, '/recommended_pusher_1/normal', 10),
                                      "pusher_2_normal": self.create_publisher(Vector3Stamped, '/recommended_pusher_2/normal', 10)}
         
-        # Service for updating YOLO prompts
-        self.update_prompts_service = self.create_service(
-            UpdateYoloPrompts,
-            '/update_yolo_prompts',
-            self.update_yolo_prompts_callback
-        )
-        
-        # Topic subscription for real-time prompt updates
-        self.prompts_subscription = self.create_subscription(
-            String,
-            '/yolo_prompts_update',
-            self.yolo_prompts_callback,
-            10
-        )
-        
-        # Timer to publish current prompts periodically
-        self.prompts_timer = self.create_timer(1.0, self.publish_current_prompts)
-
-    def _load_yolo_parameters(self):
-        """Load YOLO parameters from ROS2 parameters"""
-        try:
-            prompts_json = self.get_parameter('yolo_prompts').get_parameter_value().string_value
-            color_map_json = self.get_parameter('yolo_color_map').get_parameter_value().string_value
-            
-            with self.yolo_prompts_lock:
-                self.yolo_prompts = json.loads(prompts_json)
-                self.yolo_color_map = json.loads(color_map_json)
-                
-            self.get_logger().info(f"Loaded YOLO prompts: {self.yolo_prompts}")
-            self.get_logger().info(f"Loaded YOLO color map: {self.yolo_color_map}")
-        except Exception as e:
-            self.get_logger().warn(f"Failed to load YOLO parameters: {e}")
-            # Keep defaults
-
-    def get_yolo_prompts(self):
-        """Get current YOLO prompts (thread-safe)"""
-        with self.yolo_prompts_lock:
-            return self.yolo_prompts.copy(), self.yolo_color_map.copy()
-
-    def update_yolo_prompts_callback(self, request, response):
-        """Service callback for updating YOLO prompts"""
-        try:
-            prompts = json.loads(request.prompts_json)
-            color_map = json.loads(request.color_map_json) if request.color_map_json else {}
-            
-            with self.yolo_prompts_lock:
-                self.yolo_prompts = prompts
-                self.yolo_color_map = color_map
-                
-            # Update parameters
-            from rclpy.parameter import Parameter
-            self.set_parameter(Parameter('yolo_prompts', Parameter.Type.STRING, json.dumps(prompts)))
-            self.set_parameter(Parameter('yolo_color_map', Parameter.Type.STRING, json.dumps(color_map)))
-            
-            response.success = True
-            response.message = f"Updated YOLO prompts to: {prompts}"
-            self.get_logger().info(f"YOLO prompts updated via service: {prompts}")
-            
-        except Exception as e:
-            response.success = False
-            response.message = f"Failed to update YOLO prompts: {str(e)}"
-            self.get_logger().error(f"Failed to update YOLO prompts: {e}")
-            
-        return response
-
-    def yolo_prompts_callback(self, msg):
-        """Topic callback for real-time YOLO prompt updates"""
-        try:
-            data = json.loads(msg.data)
-            prompts = data.get('prompts', [])
-            color_map = data.get('color_map', {})
-            
-            with self.yolo_prompts_lock:
-                self.yolo_prompts = prompts
-                self.yolo_color_map = color_map
-                
-            self.get_logger().info(f"YOLO prompts updated via topic: {prompts}")
-            
-        except Exception as e:
-            self.get_logger().error(f"Failed to update YOLO prompts from topic: {e}")
-
-    def publish_current_prompts(self):
-        """Publish current YOLO prompts for external monitoring"""
-        try:
-            with self.yolo_prompts_lock:
-                prompts_data = {
-                    'prompts': self.yolo_prompts,
-                    'color_map': self.yolo_color_map
-                }
-                
-            msg = String()
-            msg.data = json.dumps(prompts_data)
-            self.yolo_prompts_pub.publish(msg)
-            
-        except Exception as e:
-            self.get_logger().error(f"Failed to publish current prompts: {e}")
 
     def publish_image(self, frame):
         img_msg = self.bridge.cv2_to_imgmsg(frame, "bgr8")

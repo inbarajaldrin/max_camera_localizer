@@ -15,7 +15,9 @@ from max_camera_localizer.drawing_functions import draw_text, draw_object_lines,
 import threading
 import rclpy
 import argparse
+import json
 from ultralytics import YOLOE
+from max_camera_msgs.srv import UpdateYoloPrompts
 
 c_width = 1280 # pix
 c_hfov = 69.4 # deg
@@ -75,16 +77,16 @@ TARGET_POSES = {
     "allen_key": ([40, -600, 10], [0, 0, 0]),
 }
 
-# YOLO detection settings - matches color names from original
-YOLO_PROMPTS = ["blue object", "red object", "green object", "yellow object", "hand","ipad"]
+# YOLO detection settings - only hand detection
+YOLO_PROMPTS = ["hand"]
 YOLO_COLOR_MAP = {
-    "blue object": "blue",
-    "red object": "red", 
-    "green object": "green",
-    "yellow object": "yellow",
-    "hand": "hand",
-    "ipad": "box"
+    "hand": "hand"
 }
+
+# Global variables for dynamic YOLO prompt management
+yolo_prompts_lock = threading.Lock()
+current_yolo_prompts = YOLO_PROMPTS.copy()
+current_yolo_color_map = YOLO_COLOR_MAP.copy()
 
 # Generic color for all YOLO detections (cyan in BGR)
 GENERIC_COLOR = (255, 255, 0)
@@ -99,6 +101,60 @@ def start_ros_node():
     thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
     thread.start()
     return node
+
+def get_yolo_prompts():
+    """Get current YOLO prompts (thread-safe)"""
+    with yolo_prompts_lock:
+        return current_yolo_prompts.copy(), current_yolo_color_map.copy()
+
+def update_yolo_prompts(prompts, color_map, yolo_model=None):
+    """Update YOLO prompts and color mapping (thread-safe)"""
+    with yolo_prompts_lock:
+        global current_yolo_prompts, current_yolo_color_map
+        current_yolo_prompts = prompts.copy()
+        current_yolo_color_map = color_map.copy()
+        print(f"Updated YOLO prompts: {current_yolo_prompts}")
+        print(f"Updated color mapping: {current_yolo_color_map}")
+        
+        # Update YOLO model if provided
+        if yolo_model is not None:
+            try:
+                yolo_model.set_classes(current_yolo_prompts, yolo_model.get_text_pe(current_yolo_prompts))
+                print(f"YOLO model updated with new prompts")
+            except Exception as e:
+                print(f"Failed to update YOLO model: {e}")
+
+def update_yolo_prompts_callback(request, response, yolo_model=None):
+    """Service callback for updating YOLO prompts"""
+    try:
+        prompts = json.loads(request.prompts_json)
+        color_map = json.loads(request.color_map_json) if request.color_map_json else {}
+        
+        update_yolo_prompts(prompts, color_map, yolo_model)
+        
+        response.success = True
+        response.message = f"Updated YOLO prompts to: {prompts}"
+        print(f"YOLO prompts updated via service: {prompts}")
+        
+    except Exception as e:
+        response.success = False
+        response.message = f"Failed to update YOLO prompts: {str(e)}"
+        print(f"Failed to update YOLO prompts: {e}")
+        
+    return response
+
+def yolo_prompts_callback(msg, yolo_model=None):
+    """Topic callback for real-time YOLO prompt updates"""
+    try:
+        data = json.loads(msg.data)
+        prompts = data.get('prompts', [])
+        color_map = data.get('color_map', {})
+        
+        update_yolo_prompts(prompts, color_map, yolo_model)
+        print(f"YOLO prompts updated via topic: {prompts}")
+        
+    except Exception as e:
+        print(f"Failed to update YOLO prompts from topic: {e}")
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run ArUco pose tracker with YOLO detection.")
@@ -115,8 +171,8 @@ def parse_args():
     parser.add_argument("--yolo-conf", type=float, default=0.4,
                         help="YOLO confidence threshold (default: 0.4)")
     parser.add_argument("--yolo-prompts", type=str, nargs='+', 
-                        default=["blue object", "red object", "green object", "yellow object", "hand", "ipad"],
-                        help="YOLO detection prompts (default: blue object red object green object yellow object hand ipad)")
+                        default=["hand"],
+                        help="YOLO detection prompts (default: hand)")
     parser.add_argument("--yolo-color-map", type=str, nargs='+',
                         help="Custom color mapping for prompts (format: prompt1:color1 prompt2:color2)")
     return parser.parse_args()
@@ -340,6 +396,46 @@ def detect_yolo_blobs(frame, yolo_model, camera_matrix, cam_pos, cam_quat, yolo_
 def main():
     args = parse_args()
     bridge_node = start_ros_node()
+    
+    # Set up YOLO prompt services and topics
+    from std_msgs.msg import String
+    
+    # Service for updating YOLO prompts
+    update_prompts_service = bridge_node.create_service(
+        UpdateYoloPrompts,
+        '/update_yolo_prompts',
+        update_yolo_prompts_callback
+    )
+    
+    # Topic subscription for real-time prompt updates
+    prompts_subscription = bridge_node.create_subscription(
+        String,
+        '/yolo_prompts_update',
+        yolo_prompts_callback,
+        10
+    )
+    
+    # YOLO prompts publisher for external monitoring
+    yolo_prompts_pub = bridge_node.create_publisher(String, '/yolo_prompts', 10)
+    
+    # Timer to publish current prompts periodically
+    def publish_current_prompts():
+        """Publish current YOLO prompts for external monitoring"""
+        try:
+            prompts, color_map = get_yolo_prompts()
+            prompts_data = {
+                'prompts': prompts,
+                'color_map': color_map
+            }
+            
+            msg = String()
+            msg.data = json.dumps(prompts_data)
+            yolo_prompts_pub.publish(msg)
+            
+        except Exception as e:
+            print(f"Failed to publish current prompts: {e}")
+    
+    prompts_timer = bridge_node.create_timer(1.0, publish_current_prompts)
 
     # Parse color mapping from command line if provided
     yolo_color_map = YOLO_COLOR_MAP.copy()
@@ -348,6 +444,9 @@ def main():
             if ':' in mapping:
                 prompt, color = mapping.split(':', 1)
                 yolo_color_map[prompt] = color.strip()
+    
+    # Update global variables with command line arguments
+    update_yolo_prompts(args.yolo_prompts, yolo_color_map)
 
     # Initialize YOLO model with dynamic prompts
     print(f"Loading YOLO model: {args.yolo_model}")
@@ -355,6 +454,30 @@ def main():
     yolo_model.set_classes(args.yolo_prompts, yolo_model.get_text_pe(args.yolo_prompts))
     print(f"YOLO model loaded with prompts: {args.yolo_prompts}")
     print(f"YOLO color mapping: {yolo_color_map}")
+    
+    # Update the service and topic callbacks to use the yolo_model
+    def service_callback_wrapper(request, response):
+        return update_yolo_prompts_callback(request, response, yolo_model)
+    
+    def topic_callback_wrapper(msg):
+        return yolo_prompts_callback(msg, yolo_model)
+    
+    # Recreate the service and topic with the wrapped callbacks
+    bridge_node.destroy_service(update_prompts_service)
+    bridge_node.destroy_subscription(prompts_subscription)
+    
+    update_prompts_service = bridge_node.create_service(
+        UpdateYoloPrompts,
+        '/update_yolo_prompts',
+        service_callback_wrapper
+    )
+    
+    prompts_subscription = bridge_node.create_subscription(
+        String,
+        '/yolo_prompts_update',
+        topic_callback_wrapper,
+        10
+    )
 
     kalman_filters = {}
     marker_stabilities = {}
@@ -362,8 +485,7 @@ def main():
     frame_idx = 0
 
     # Current YOLO prompts (will be updated dynamically)
-    current_yolo_prompts = args.yolo_prompts.copy()
-    current_yolo_color_map = yolo_color_map.copy()
+    # These are now managed by the global functions
 
     if args.camera_id is not None:
         cam_id = args.camera_id
@@ -403,16 +525,11 @@ def main():
 
         # Check for dynamic YOLO prompt updates
         try:
-            updated_prompts, updated_color_map = bridge_node.get_yolo_prompts()
-            if updated_prompts != current_yolo_prompts or updated_color_map != current_yolo_color_map:
-                current_yolo_prompts = updated_prompts
-                current_yolo_color_map = updated_color_map
-                # Update YOLO model with new prompts
-                yolo_model.set_classes(current_yolo_prompts, yolo_model.get_text_pe(current_yolo_prompts))
-                print(f"Updated YOLO prompts: {current_yolo_prompts}")
-                print(f"Updated color mapping: {current_yolo_color_map}")
+            updated_prompts, updated_color_map = get_yolo_prompts()
+            # Check if prompts have changed (this will be handled by the global update functions)
+            # The YOLO model will be updated when the prompts actually change
         except Exception as e:
-            print(f"Error updating YOLO prompts: {e}")
+            print(f"Error checking YOLO prompts: {e}")
 
         # Publish raw camera image
         bridge_node.publish_image(frame)
@@ -447,9 +564,10 @@ def main():
         objects = identified_jenga + detected_objects
 
         # YOLO Detection Section (replaces color blob detection)
+        current_prompts, current_color_map = get_yolo_prompts()
         detected_color_points, detection_metadata = detect_yolo_blobs(
             frame, yolo_model, CAMERA_MATRIX, cam_pos, cam_quat, 
-            current_yolo_prompts, current_yolo_color_map,
+            current_prompts, current_color_map,
             height=0.01, conf_threshold=args.yolo_conf, nms_threshold=0.3
         )
         
