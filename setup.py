@@ -22,7 +22,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'localize = max_camera_localizer.merged_localization:main'
+            'localize = max_camera_localizer.merged_localization:main',
+            'localize_yoloe = max_camera_localizer.merged_localization_yoloe:main'
         ],
     },
 )
