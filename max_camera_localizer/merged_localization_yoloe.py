@@ -114,6 +114,11 @@ def parse_args():
                         help="YOLO model path (default: max_camera_localizer/yoloe-11s-seg.pt)")
     parser.add_argument("--yolo-conf", type=float, default=0.4,
                         help="YOLO confidence threshold (default: 0.4)")
+    parser.add_argument("--yolo-prompts", type=str, nargs='+', 
+                        default=["blue object", "red object", "green object", "yellow object", "hand", "ipad"],
+                        help="YOLO detection prompts (default: blue object red object green object yellow object hand ipad)")
+    parser.add_argument("--yolo-color-map", type=str, nargs='+',
+                        help="Custom color mapping for prompts (format: prompt1:color1 prompt2:color2)")
     return parser.parse_args()
 
 def pick_closest_blob(blobs, last_position):
@@ -245,7 +250,7 @@ def draw_axis_aligned_line(image, box, orientation_angle=None):
             # Vertical line
             cv2.line(image, (center_x, y1), (center_x, y2), (255, 255, 0), 3)
 
-def detect_yolo_blobs(frame, yolo_model, camera_matrix, cam_pos, cam_quat, height=0.01, conf_threshold=0.4, nms_threshold=0.3):
+def detect_yolo_blobs(frame, yolo_model, camera_matrix, cam_pos, cam_quat, yolo_prompts, yolo_color_map, height=0.01, conf_threshold=0.4, nms_threshold=0.3):
     """Detect objects using YOLO and convert to world points, grouped by color"""
     detected_color_points = {}
     detection_metadata = []  # Store boxes, orientations, and other metadata
@@ -278,8 +283,8 @@ def detect_yolo_blobs(frame, yolo_model, camera_matrix, cam_pos, cam_quat, heigh
                 class_id = int(class_ids_raw[idx])
                 
                 # Get class name and map to color
-                class_name = YOLO_PROMPTS[class_id] if class_id < len(YOLO_PROMPTS) else f"class_{class_id}"
-                color_name = YOLO_COLOR_MAP.get(class_name, class_name)
+                class_name = yolo_prompts[class_id] if class_id < len(yolo_prompts) else f"class_{class_id}"
+                color_name = yolo_color_map.get(class_name, class_name)
                 
                 # Calculate center of bounding box
                 x1, y1, x2, y2 = box
@@ -336,16 +341,29 @@ def main():
     args = parse_args()
     bridge_node = start_ros_node()
 
-    # Initialize YOLO model
+    # Parse color mapping from command line if provided
+    yolo_color_map = YOLO_COLOR_MAP.copy()
+    if args.yolo_color_map:
+        for mapping in args.yolo_color_map:
+            if ':' in mapping:
+                prompt, color = mapping.split(':', 1)
+                yolo_color_map[prompt] = color.strip()
+
+    # Initialize YOLO model with dynamic prompts
     print(f"Loading YOLO model: {args.yolo_model}")
     yolo_model = YOLOE(args.yolo_model)
-    yolo_model.set_classes(YOLO_PROMPTS, yolo_model.get_text_pe(YOLO_PROMPTS))
-    print(f"YOLO model loaded with prompts: {YOLO_PROMPTS}")
+    yolo_model.set_classes(args.yolo_prompts, yolo_model.get_text_pe(args.yolo_prompts))
+    print(f"YOLO model loaded with prompts: {args.yolo_prompts}")
+    print(f"YOLO color mapping: {yolo_color_map}")
 
     kalman_filters = {}
     marker_stabilities = {}
     last_seen_frames = {}
     frame_idx = 0
+
+    # Current YOLO prompts (will be updated dynamically)
+    current_yolo_prompts = args.yolo_prompts.copy()
+    current_yolo_color_map = yolo_color_map.copy()
 
     if args.camera_id is not None:
         cam_id = args.camera_id
@@ -383,6 +401,19 @@ def main():
         if not ret:
             break
 
+        # Check for dynamic YOLO prompt updates
+        try:
+            updated_prompts, updated_color_map = bridge_node.get_yolo_prompts()
+            if updated_prompts != current_yolo_prompts or updated_color_map != current_yolo_color_map:
+                current_yolo_prompts = updated_prompts
+                current_yolo_color_map = updated_color_map
+                # Update YOLO model with new prompts
+                yolo_model.set_classes(current_yolo_prompts, yolo_model.get_text_pe(current_yolo_prompts))
+                print(f"Updated YOLO prompts: {current_yolo_prompts}")
+                print(f"Updated color mapping: {current_yolo_color_map}")
+        except Exception as e:
+            print(f"Error updating YOLO prompts: {e}")
+
         # Publish raw camera image
         bridge_node.publish_image(frame)
 
@@ -418,6 +449,7 @@ def main():
         # YOLO Detection Section (replaces color blob detection)
         detected_color_points, detection_metadata = detect_yolo_blobs(
             frame, yolo_model, CAMERA_MATRIX, cam_pos, cam_quat, 
+            current_yolo_prompts, current_yolo_color_map,
             height=0.01, conf_threshold=args.yolo_conf, nms_threshold=0.3
         )
         
