@@ -27,6 +27,31 @@ c_vfov = 42.5 # deg
 fy = c_height / (2 * np.tan(np.deg2rad(c_vfov / 2)))
 print(f"Calculated fy as {fy}")
 
+def convert_2d_orientation_to_quaternion(orientation_angle, cam_quat):
+    """
+    Convert 2D orientation angle from PCA to 3D quaternion in world frame.
+    
+    Args:
+        orientation_angle: 2D orientation angle in radians from PCA
+        cam_quat: Camera quaternion in world frame [x, y, z, w]
+    
+    Returns:
+        quaternion: 3D quaternion in world frame [x, y, z, w]
+    """
+    # Create rotation around Z-axis (vertical) based on 2D orientation
+    # The 2D angle represents the object's orientation in the image plane
+    z_rotation = R.from_euler('z', orientation_angle)
+    
+    # Convert to quaternion
+    z_quat = z_rotation.as_quat()  # Returns [x, y, z, w]
+    
+    # Transform the orientation from camera frame to world frame
+    # The camera's orientation affects how the 2D orientation maps to 3D
+    cam_rotation = R.from_quat(cam_quat)
+    world_orientation = cam_rotation * R.from_quat(z_quat)
+    
+    return world_orientation.as_quat()
+
 CAMERA_MATRIX = np.array([[fx, 0, c_width / 2],
                           [0, fy, c_height / 2],
                           [0, 0, 1]], dtype=np.float32)
@@ -397,18 +422,43 @@ def main():
         
         # Convert YOLO detections to object format for objects_poses topic
         yolo_detected_objects = []
+        
+        # Create a mapping from detection metadata to world points
+        # Group metadata by color for easier lookup
+        metadata_by_color = {}
+        for metadata in detection_metadata:
+            color_name = metadata['color_name']
+            if color_name not in metadata_by_color:
+                metadata_by_color[color_name] = []
+            metadata_by_color[color_name].append(metadata)
+        
         for color_name, world_points in detected_color_points.items():
             # Skip pusher colors as they're handled separately
             if color_name in ["green", "yellow"]:
                 continue
             
+            # Get metadata for this color
+            color_metadata = metadata_by_color.get(color_name, [])
+            
             # Add each detected point as an object
             for i, point in enumerate(world_points):
+                # Get orientation from detection metadata
+                orientation_quat = np.array([0.0, 0.0, 0.0, 1.0])  # Default identity quaternion
+                
+                # Find corresponding detection metadata for this point
+                if i < len(color_metadata):
+                    metadata = color_metadata[i]
+                    if metadata['orientation_angle'] is not None:
+                        # Convert 2D orientation angle to 3D quaternion
+                        orientation_quat = convert_2d_orientation_to_quaternion(
+                            metadata['orientation_angle'], cam_quat
+                        )
+                
                 yolo_detected_objects.append({
                     "name": f"{color_name}_dot_{i}",
                     "points": [point],
                     "position": point,
-                    "quaternion": np.array([0.0, 0.0, 0.0, 1.0]),  # Identity quaternion
+                    "quaternion": orientation_quat,
                     'inferred': False,
                 })
         
