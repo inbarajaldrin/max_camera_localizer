@@ -2,14 +2,13 @@ import cv2
 import cv2.aruco as aruco
 import numpy as np
 from scipy.spatial.transform import Rotation as R
-from scipy.spatial import cKDTree
 from max_camera_localizer.camera_selection import detect_available_cameras, select_camera
 from max_camera_localizer.localizer_bridge import LocalizerBridge
 from max_camera_localizer.geometric_functions import rvec_to_quat, transform_orientation_cam_to_world, transform_point_cam_to_world, \
 transform_points_world_to_img, transform_point_world_to_cam
 from max_camera_localizer.detection_functions import detect_markers, detect_color_blobs, estimate_pose, \
     identify_objects_from_blobs, attempt_recovery_for_missing_objects
-from max_camera_localizer.object_frame_definitions import define_jenga_contacts, define_jenga_contour, hard_define_contour
+from max_camera_localizer.object_frame_definitions import define_jenga_contacts, define_jenga_contour
 from max_camera_localizer.drawing_functions import draw_text, draw_object_lines, draw_color_dot_poses
 import threading
 import rclpy
@@ -70,7 +69,6 @@ COLOR_VISUALIZATION = {
     # Add corresponding visualization colors for new ranges
 }
 
-pusher_distance_max = 0.030
 
 trackers = {}
 
@@ -87,10 +85,6 @@ def parse_args():
                         help="Camera device ID to use (e.g., 8). If not set, will scan and prompt.")
     parser.add_argument("--suppress-prints", action='store_true',
                         help="Prevents console prints. Otherwise, prints object positions in both camera frame and base frame.")
-    parser.add_argument("--no-pushers", action='store_true',
-                        help="Stops detecting yellow and green pushers")
-    parser.add_argument("--recommend-push", action='store_true',
-                        help="For each object, recommend where to push")
     return parser.parse_args()
 
 def pick_closest_blob(blobs, last_position):
@@ -126,8 +120,6 @@ def main():
             return
 
     talk = not args.suppress_prints
-    if args.recommend_push:
-        from max_camera_localizer.data_predict import predict_pusher_outputs
 
     cap = cv2.VideoCapture(cam_id)
     if not cap.isOpened():
@@ -143,9 +135,6 @@ def main():
     print("Press 'q' to quit.")
 
     detected_objects = []
-    last_pushers = {"green": None, "yellow": None}
-    unconfirmed_blobs = {"green": None, "yellow": None}
-    unconfirmed_blobs = {"green": None, "yellow": None}
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -194,10 +183,6 @@ def main():
         
         # Detect all configured colors dynamically
         for color_name, color_range in COLOR_RANGES.items():
-            if color_name in ["green", "yellow"]:
-                # Skip pusher colors for target detection
-                continue
-                
             color_bgr = COLOR_VISUALIZATION.get(color_name, (255, 255, 255))
             world_points, _ = detect_color_blobs(frame, color_range, color_bgr, CAMERA_MATRIX, cam_pos, cam_quat)
             detected_color_points[color_name] = world_points
@@ -212,68 +197,8 @@ def main():
         # Publish all target poses dynamically
         bridge_node.publish_target_poses(detected_color_points)
 
-        # Pusher section (dynamic)
-        pushers = {}
+        # Pusher section removed
         nearest_pushers = []
-        if not args.no_pushers:
-            # Detect pusher colors dynamically
-            for color_name in ["green", "yellow"]:
-                if color_name in COLOR_RANGES:
-                    color_range = COLOR_RANGES[color_name]
-                    color_bgr = COLOR_VISUALIZATION.get(color_name, (255, 255, 255))
-                    world_points, _ = detect_color_blobs(frame, color_range, color_bgr, CAMERA_MATRIX, cam_pos, cam_quat, min_area=150, merge_threshold=0)
-                    pushers[color_name] = world_points
-
-            # Process detected pusher points
-            for color_name, world_points in pushers.items():
-                if world_points:
-                    color_bgr = COLOR_VISUALIZATION.get(color_name, (255, 255, 255))
-                    best_point = pick_closest_blob(world_points, last_pushers.get(color_name))
-                    pushers[color_name] = (best_point, color_bgr)
-                    last_pushers[color_name] = best_point
-            
-
-            # Working block for pusher-object interaction detection
-            # For now, gets nearest contour point to each pusher
-            all_xyz = []
-            all_kappa = []
-            all_meta = []  # to keep track of which object and index a point came from
-            if objects:  # At least one pusher detected
-                for obj_idx, obj in enumerate(objects):
-                    # Skip objects that don't have contour data (like Jenga blocks)
-                    if 'contour' not in obj or obj['contour'] is None:
-                        continue
-                    xyz = obj['contour']['xyz']
-                    kappa = obj['contour']['kappa']
-                    all_xyz.extend(xyz)
-                    all_kappa.extend(kappa)
-                    all_meta.extend([(obj_idx, i) for i in range(len(xyz))])
-
-                if all_xyz:  # Only process if we have contour data
-                    all_xyz = np.array(all_xyz)
-                    all_kappa = np.array(all_kappa)
-
-                    tree = cKDTree(all_xyz)
-
-                    for color, pusher in pushers.items():
-                        if pusher is not None:
-                            pusher_pos, col = pusher
-                            distance, contour_idx = tree.query(pusher_pos)
-                            if distance > pusher_distance_max: # Must be within 30mm (accounts for differences in z)
-                                continue
-                            nearest_point = all_xyz[contour_idx]
-                            kappa_value = all_kappa[contour_idx]
-                            obj_index, local_contour_index = all_meta[contour_idx]
-                            nearest_pushers.append({
-                                'pusher_name': color,
-                                'frame_number': frame_idx,
-                                'color': col,
-                                'pusher_location': pusher_pos,
-                                'nearest_point': nearest_point,
-                                'kappa': kappa_value,
-                                'object_index': obj_index,
-                                'local_contour_index': local_contour_index
-                            })
 
         # Check for disappeared objects
         missing = False
@@ -294,53 +219,7 @@ def main():
                 if not any(obj["name"] == rec["name"] for obj in identified_objects):
                     identified_objects.append(rec)
 
-        # Bonus: For the ML test run, predict where the pushers should go
-        for obj in identified_objects+identified_jenga:
-            color = (255, 255, 0)
-            name = obj["name"]
-            if "jenga" in name:
-                name = "jenga"
-            # Skip objects that don't have contour data for pusher recommendations
-            if name in ["allen_key", "wrench", "jenga"] and 'contour' in obj and obj['contour'] is not None:
-                if args.recommend_push:
-                    posex = obj["position"][0]
-                    posey = obj["position"][1]
-                    objquat = obj["quaternion"]
-                    objeuler = R.from_quat(objquat).as_euler('xyz')
-                    oriy = objeuler[2]
-                    prediction = predict_pusher_outputs(name, posex, posey, oriy, TARGET_POSES[name])
-                    index = prediction['predicted_index']
-
-                    # Draw predicted points (of the one or two given)
-                    recommended = []
-                    for ind in index:
-                        label = f"pusher recommended @ contour {ind}"
-                        pusher_point_world = obj['contour']['xyz'][ind]
-                        pusher_point_img = transform_points_world_to_img([pusher_point_world], cam_pos, cam_quat, CAMERA_MATRIX)
-                        pusher_point_normal = obj['contour']['normals'][ind]
-
-                        (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                        cv2.rectangle(frame, (pusher_point_img[0][0] - 20, pusher_point_img[0][1] - h - 20 - 5), (pusher_point_img[0][0] + w - 20, pusher_point_img[0][1] - 20 + 5), (0, 0, 0), -1)
-                        cv2.putText(frame, label, (pusher_point_img[0][0] - 20, pusher_point_img[0][1] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-                        cv2.circle(frame, pusher_point_img[0], 5, color)
-
-                        recommended.append([pusher_point_world, pusher_point_normal])
-                    if len(recommended) == 1:
-                        # duplicate single pusher
-                        recommended.append(recommended[0])
-                    
-                    bridge_node.publish_recommended_contacts(recommended)
-
-                # draw target
-                target_contour = hard_define_contour(TARGET_POSES[name][0], TARGET_POSES[name][1], name)
-                # Draw low-res Contour
-                contour_xyz = target_contour["xyz"]
-                contour_img = transform_points_world_to_img(contour_xyz, cam_pos, cam_quat, CAMERA_MATRIX)
-                contour_img = np.array(contour_img)
-                contour_img.reshape((-1, 1, 2))
-                contour_img = contour_img[::20]
-                cv2.polylines(frame,[contour_img],False,color)
+        # ML prediction section removed
 
         detected_objects = identified_objects.copy()
         bridge_node.publish_camera_pose(cam_pos, cam_quat)

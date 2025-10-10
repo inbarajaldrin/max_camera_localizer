@@ -86,13 +86,19 @@ def draw_object_lines(frame, camera_matrix, cam_pos, cam_quat, identified_object
 
         axes_image = transform_points_world_to_img(axes_world, cam_pos, cam_quat, camera_matrix)
 
-        o, x, y, z = axes_image
-        if o and x:
-            cv2.arrowedLine(frame, o, x, (0, 0, 255), 2, tipLength=0.3)  # X: Red
-        if o and y:
-            cv2.arrowedLine(frame, o, y, (0, 255, 0), 2, tipLength=0.3)  # Y: Green
-        if o and z:
-            cv2.arrowedLine(frame, o, z, (255, 0, 0), 2, tipLength=0.3)  # Z: Blue
+        # Handle cases where some axes points might be behind the camera
+        if len(axes_image) >= 1:
+            o = axes_image[0]  # origin
+            x = axes_image[1] if len(axes_image) > 1 else None  # X axis
+            y = axes_image[2] if len(axes_image) > 2 else None  # Y axis  
+            z = axes_image[3] if len(axes_image) > 3 else None  # Z axis
+            
+            if o and x:
+                cv2.arrowedLine(frame, o, x, (0, 0, 255), 2, tipLength=0.3)  # X: Red
+            if o and y:
+                cv2.arrowedLine(frame, o, y, (0, 255, 0), 2, tipLength=0.3)  # Y: Green
+            if o and z:
+                cv2.arrowedLine(frame, o, z, (255, 0, 0), 2, tipLength=0.3)  # Z: Blue
 
         # Draw contact points
         # contact_points = obj["contacts"]

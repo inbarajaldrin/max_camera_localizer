@@ -774,6 +774,9 @@ def main():
             cv2.putText(frame, label, (x1, y1 - 5), 
                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
+        # Publish the annotated frame (same as what's displayed in OpenCV window)
+        bridge_node.publish_annotated_image(frame)
+        
         cv2.imshow("YOLO-based Detection", frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break

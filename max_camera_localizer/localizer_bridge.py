@@ -34,6 +34,7 @@ class LocalizerBridge(Node):
         # --- Publishers ---
         self.cam_pose_pub = self.create_publisher(PoseStamped, '/camera_pose', 10)
         self.image_publisher = self.create_publisher(Image, 'intel_camera_rgb_raw', 10)
+        self.annotated_image_publisher = self.create_publisher(Image, 'intel_camera_annotated', 10)
         self.bridge = CvBridge()
         
         # Clean approach: Single topic with proper structured data
@@ -54,6 +55,11 @@ class LocalizerBridge(Node):
     def publish_image(self, frame):
         img_msg = self.bridge.cv2_to_imgmsg(frame, "bgr8")
         self.image_publisher.publish(img_msg)
+
+    def publish_annotated_image(self, frame):
+        """Publish the annotated/processed frame that's displayed in OpenCV window"""
+        img_msg = self.bridge.cv2_to_imgmsg(frame, "bgr8")
+        self.annotated_image_publisher.publish(img_msg)
 
     def ee_pose_callback(self, msg: PoseStamped):
         with self.lock:
@@ -76,6 +82,14 @@ class LocalizerBridge(Node):
             
             cam_quat_world = (r_ee * r_cam_offset).as_quat()
         return cam_pos_world, cam_quat_world
+
+    def canonicalize_euler(self, orientation):
+        """Forces euler angles near the form (-180, 0, yaw') to take the equivalent form (0, 180, yaw)"""
+        roll, pitch, yaw = orientation
+        if abs(pitch) < 1 and abs(abs(roll) - 180) < 1:
+            return (0.0, 180.0, (yaw % 360)-180)
+        else:
+            return orientation
 
     def publish_camera_pose(self, pos, quat):
         msg = PoseStamped()
@@ -110,6 +124,18 @@ class LocalizerBridge(Node):
             object_pose.pose.orientation.z = obj["quaternion"][2]
             object_pose.pose.orientation.w = obj["quaternion"][3]
             
+            # Calculate and set RPY angles from quaternion
+            quat = obj["quaternion"]
+            rot = R.from_quat([quat[0], quat[1], quat[2], quat[3]])
+            rpy = rot.as_euler('xyz', degrees=True)  # Convert to degrees
+            
+            # Apply canonicalization to match OpenCV display values
+            rpy = self.canonicalize_euler(rpy)
+            
+            object_pose.roll = rpy[0]
+            object_pose.pitch = rpy[1]
+            object_pose.yaw = rpy[2]
+            
             msg.objects.append(object_pose)
         
         # Publish the structured message
@@ -142,6 +168,11 @@ class LocalizerBridge(Node):
                 target_pose.pose.orientation.y = 0.0
                 target_pose.pose.orientation.z = 0.0
                 target_pose.pose.orientation.w = 1.0
+                
+                # Set RPY angles (identity quaternion = 0,0,0)
+                target_pose.roll = 0.0
+                target_pose.pitch = 0.0
+                target_pose.yaw = 0.0
                 
                 msg.objects.append(target_pose)
         
